@@ -1,0 +1,7 @@
+pages:
+  script:
+  - mkdir -p public/etc
+  - cp -p etc/northbound-openapi.json public/etc
+  artifacts:
+    paths:
+    - public/
