@@ -1,22 +1,5 @@
-
-//#include <shared>
-
-/*
-
-/version -- 200, { "version": "<version-string>" }
-/slice(<id>?)
-* GET: -- no args, list of slices; GET <id> single slice
-{ "id":<id>,[mix of kpm metrics and xran metrics, and cell config] }
-* PUT: -- slice config
-/ue
-* PUT: -- UE slice binding; 
-/metrics/slice/<slice-id> (probably static indexing of 
-/metrics/ran/<ran-id>
-(probably streaming versions of metrics that update with KPM reports eventually)
-
-
- */
-
+#include "mdclog/mdclog.h"
+#include "pistache/string_logger.h"
 
 #include "nexran.h"
 #include "version.h"
@@ -108,16 +91,25 @@ void RestServer::setupRoutes()
 
 void RestServer::init(App *app_)
 {
-    Pistache::Address addr("*:8000");
+    Pistache::Port port(
+        app_->config[Config::ItemName::ADMIN_PORT]->i);
+    Pistache::Address addr(
+        std::string(app_->config[Config::ItemName::ADMIN_HOST]->s),
+	port);
 
     app = app_;
 
     setupRoutes();
-    endpoint.init();
+    auto options = Pistache::Http::Endpoint::options().logger(
+	std::make_shared<Pistache::Log::StringToStreamLogger>(
+	    Pistache::Log::Level::DEBUG));
+    endpoint.init(options);
     endpoint.setHandler(router.handler());
     endpoint.bind(addr);
-    //Pistache::Address(Pistache::Ipv4::any(),Pistache::Port(8181)));
-    //Pistache::Ipv4::any(),Pistache::Port(8181)))) {};
+
+    mdclog_write(MDCLOG_DEBUG,"initialized northbound interface (%s:%d",
+		 app_->config[Config::ItemName::ADMIN_HOST]->s,
+		 app_->config[Config::ItemName::ADMIN_PORT]->i);
 }
 
 void RestServer::start()
@@ -127,6 +119,8 @@ void RestServer::start()
 
     endpoint.serveThreaded();
     running = true;
+
+    mdclog_write(MDCLOG_DEBUG,"started northbound interface");
 }
 
 std::string RestServer::buildVersionJson()

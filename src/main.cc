@@ -3,15 +3,17 @@
 #include <csignal>
 #include <memory>
 
+#include "mdclog/mdclog.h"
+
 #include "nexran.h"
 #include "restserver.h"
 
 static int signaled = -1;
-static std::unique_ptr<nexran::App> xapp;
+static std::unique_ptr<nexran::App> app;
 
 void sigh(int signo) {
     signaled = signo;
-    xapp->stop();
+    app->stop();
     exit(0);
 }
 
@@ -21,20 +23,25 @@ int main(int argc,char **argv) {
 
     this_id = std::this_thread::get_id();
 
+    mdclog_level_set(MDCLOG_DEBUG);
+
     config = std::make_unique<nexran::Config>();
-    if (!config || !config->load()) {
-	//mdclog_write(MDCLOG_ERROR,"Failed to load config");
+    if (!config || !config->parseArgv(argc,argv) || !config->parseEnv()
+	|| !config->validate()) {
+	mdclog_write(MDCLOG_ERR,"Failed to load config");
+	config->usage(argv[0]);
 	exit(1);
     }
 
-    xapp = std::make_unique<nexran::App>(*config);
+    mdclog_write(MDCLOG_DEBUG,"Creating app and attaching to RMR");
+    app = std::make_unique<nexran::App>(*config);
 
     signal(SIGINT,sigh);
     signal(SIGHUP,sigh);
     signal(SIGTERM,sigh);
 
-    xapp->init();
-    xapp->start();
+    mdclog_write(MDCLOG_DEBUG,"Starting app");
+    app->start();
 
     while (true)
 	sleep(1);

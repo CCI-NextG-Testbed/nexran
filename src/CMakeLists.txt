@@ -1,4 +1,7 @@
 
-add_executable(nexran policy.cc nodeb.cc ue.cc slice.cc restserver.cc nexran.cc main.cc buildinfo.cc)
-target_link_libraries(nexran pistache_shared)
+add_executable(
+  nexran
+  policy.cc nodeb.cc ue.cc slice.cc restserver.cc
+  config.cc nexran.cc main.cc buildinfo.cc)
+target_link_libraries(nexran pistache_shared mdclog ricxfcpp rmr_si)
 install(TARGETS nexran DESTINATION bin)

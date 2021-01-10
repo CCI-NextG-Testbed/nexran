@@ -13,6 +13,10 @@ void App::start()
     if (running)
 	return;
 
+    /*
+     * Init and start the northbound interface.
+     * NB: the RMR Messenger superclass is already running at this point.
+     */
     server.init(this);
     server.start();
     running = true;
@@ -20,7 +24,10 @@ void App::start()
 
 void App::stop()
 {
+    /* Stop the northbound interface. */
     server.stop();
+    /* Stop the RMR Messenger superclass. */
+    Stop();
     running = false;
 }
 

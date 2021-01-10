@@ -13,7 +13,10 @@
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/document.h"
 
+#include "ricxfcpp/messenger.hpp"
+
 #include "restserver.h"
+#include "config.h"
 
 namespace nexran {
 
@@ -368,28 +371,7 @@ class SliceMetrics {
     const Slice& slice;
 };
 
-class Config {
- public:
-    /*
-    typedef struct ConfigItem {
-
-    } ConfigItem_t;
-
-    typedef enum {
-    */
-
-    Config() {};
-    virtual ~Config() {};
-    virtual bool load() { return true; };
-
- private:
-    bool loadArgv(int argc,const char **argv) { return false; };
-    bool loadEnv() { return false; };
-
-    std::map<std::string *,std::string *> config;
-};
-
-class App {
+class App : public xapp::Messenger {
  public:
     typedef enum {
 	NodeBResource = 0,
@@ -397,7 +379,8 @@ class App {
 	UeResource,
     } ResourceType;
 
-    App(Config &config_) : config(config_), running(false) { };
+    App(Config &config_)
+	: config(config_),running(false),xapp::Messenger(NULL,false) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
@@ -425,8 +408,9 @@ class App {
     bool unbind_ue_slice(std::string& imsi,std::string& slice_name,
 			 AppError **ae);
 
- private:
     Config &config;
+
+ private:
     bool running;
     RestServer server;
     std::mutex mutex;
