@@ -39,6 +39,12 @@ COPY . /nexran
 RUN cd /nexran && rm -rf build && mkdir build && cd build \
   && cmake -DCMAKE_BUILD_TYPE=Debug ../ && make install && ldconfig
 
+ENV RMR_RTG_SVC="9999" \
+    RMR_SEED_RT="/nexran/etc/routes.txt" \
+    DEBUG=1 \
+    XAPP_NAME="nexran" \
+    XAPP_ID="1"
+
 CMD [ "/usr/local/bin/nexran" ]
 
 EXPOSE 8000
