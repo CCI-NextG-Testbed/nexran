@@ -85,8 +85,14 @@ std::unique_ptr<std::string> NodeB::build_name(
     int rc = 0;
     const char *name_prefix =
 	get_name_prefix(type,id_len);
-    rc = std::snprintf(buf,sizeof(buf),"%s_%s_%s_%08x",
-		       name_prefix,mcc,mnc,id);
+    const char *mnc_prefix = "";
+    if (strlen(mnc) == 1)
+	mnc_prefix = "00";
+    else if (strlen(mnc) == 2)
+	mnc_prefix = "0";
+
+    rc = std::snprintf(buf,sizeof(buf),"%s_%s_%s%s_%05x0",
+		       name_prefix,mcc,mnc_prefix,mnc,id);
     buf[rc] = '\0';
     return std::make_unique<std::string>(buf);
 }
