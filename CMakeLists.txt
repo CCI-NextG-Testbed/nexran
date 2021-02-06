@@ -42,6 +42,10 @@ message(STATUS "found rmr include dirs: " ${RMR_INCLUDE_DIRS})
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/lib/e2ap/include)
+include_directories(${PROJECT_SOURCE_DIR}/lib/e2sm/include)
+add_subdirectory(lib/e2ap)
+add_subdirectory(lib/e2sm)
 
+include_directories(${PROJECT_SOURCE_DIR}/include)
 add_subdirectory(src)

@@ -17,6 +17,7 @@
 
 #include "restserver.h"
 #include "config.h"
+#include "e2ap.h"
 
 namespace nexran {
 
@@ -237,6 +238,7 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
     ~ProportionalAllocationPolicy() = default;
 
     const char *getName() { return name; }
+    int getShare() { return share; }
     const AllocationPolicy::Type getType() { return AllocationPolicy::Type::Proportional; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
     {
@@ -273,6 +275,7 @@ class Slice : public Resource<Slice> {
     virtual ~Slice() = default;
 
     std::string& getName() { return name; }
+    AllocationPolicy *getPolicy() { return allocation_policy; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer);
     static Slice *create(rapidjson::Document& d,AppError **ae);
     bool update(rapidjson::Document& d,AppError **ae);
@@ -371,7 +374,7 @@ class SliceMetrics {
     const Slice& slice;
 };
 
-class App : public xapp::Messenger {
+class App : public xapp::Messenger, public e2ap::RicInterface {
  public:
     typedef enum {
 	NodeBResource = 0,
@@ -385,6 +388,14 @@ class App : public xapp::Messenger {
     virtual void init();
     virtual void start();
     virtual void stop();
+
+    virtual void handle_rmr_message(
+	xapp::Message &msg,int mtype,int subid,int payload_len,
+	xapp::Msg_component &payload);
+
+    int handle_control_ack(e2ap::ControlAck *control);
+    int handle_control_failure(e2ap::ControlFailure *control);
+    int handle_indication(e2ap::Indication *indication);
 
     void serialize(ResourceType rt,
 		   rapidjson::Writer<rapidjson::StringBuffer>& writer);
@@ -411,6 +422,7 @@ class App : public xapp::Messenger {
     Config &config;
 
  private:
+    e2ap::E2AP e2ap;
     bool running;
     RestServer server;
     std::mutex mutex;
