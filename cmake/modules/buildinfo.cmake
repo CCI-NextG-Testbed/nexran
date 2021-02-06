@@ -1,5 +1,5 @@
 execute_process(
-  COMMAND git log --pretty=format:'%h' -n 1
+  COMMAND git log --pretty=format:%h -n 1
   OUTPUT_VARIABLE NEXRAN_GIT_COMMIT
   ERROR_QUIET
   OUTPUT_STRIP_TRAILING_WHITESPACE
@@ -12,7 +12,7 @@ if ("${NEXRAN_GIT_COMMIT}" STREQUAL "")
   set(NEXRAN_GIT_BRANCH "")
 else()
   execute_process(
-    COMMAND sh -c "git diff --quiet --exit-code || echo dirty"
+    COMMAND sh -c "git diff --quiet --exit-code || echo -dirty"
     OUTPUT_VARIABLE NEXRAN_GIT_TREE_DIRTY
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_STRIP_TRAILING_WHITESPACE)
