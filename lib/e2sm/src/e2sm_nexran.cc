@@ -1,6 +1,8 @@
 
 #include <cstring>
 
+#include "mdclog/mdclog.h"
+
 #include "e2ap.h"
 #include "e2sm.h"
 #include "e2sm_internal.h"
@@ -211,9 +213,9 @@ bool SliceUeBindRequest::encode()
     m.choice.controlMessageFormat1.choice.sliceUeBindRequest.sliceName.size = \
 	strlen(slice.c_str());
     m.choice.controlMessageFormat1.choice.sliceUeBindRequest.sliceName.buf = \
-	(uint8_t *)malloc(strlen(slice.c_str()));
-    memcpy(m.choice.controlMessageFormat1.choice.sliceUeBindRequest.sliceName.buf,
-	   slice.c_str(),strlen(slice.c_str()));
+	(uint8_t *)malloc(strlen(slice.c_str()) + 1);
+    strcpy((char *)m.choice.controlMessageFormat1.choice.sliceUeBindRequest.sliceName.buf,
+	   slice.c_str());
     for (auto it = imsis.begin(); it != imsis.end(); ++it) {
 	E2SM_NEXRAN_IMSI_t *ie = (E2SM_NEXRAN_IMSI_t *)calloc(1,sizeof(*ie));
 	ie->size = strlen(it->c_str());
@@ -226,6 +228,7 @@ bool SliceUeBindRequest::encode()
 
     ssize_t len = e2sm::encode(&asn_DEF_E2SM_NEXRAN_E2SM_NexRAN_ControlHeader,NULL,&h,&header);
     if (len < 0) {
+	mdclog_write(MDCLOG_ERR,"failed to encode sliceUeBindRequest header\n");
 	header = NULL;
 	header_len = 0;
 	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_NEXRAN_E2SM_NexRAN_ControlHeader,&h);
@@ -239,6 +242,7 @@ bool SliceUeBindRequest::encode()
 
     len = e2sm::encode(&asn_DEF_E2SM_NEXRAN_E2SM_NexRAN_ControlMessage,NULL,&m,&message);
     if (len < 0) {
+	mdclog_write(MDCLOG_ERR,"failed to encode sliceUeBindRequest message\n");
 	free(header);
 	header = NULL;
 	header_len = 0;
@@ -273,9 +277,9 @@ bool SliceUeUnbindRequest::encode()
     m.choice.controlMessageFormat1.choice.sliceUeUnbindRequest.sliceName.size = \
 	strlen(slice.c_str());
     m.choice.controlMessageFormat1.choice.sliceUeUnbindRequest.sliceName.buf = \
-	(uint8_t *)malloc(strlen(slice.c_str()));
-    memcpy(m.choice.controlMessageFormat1.choice.sliceUeUnbindRequest.sliceName.buf,
-	   slice.c_str(),strlen(slice.c_str()));
+	(uint8_t *)malloc(strlen(slice.c_str()) + 1);
+    strcpy((char *)m.choice.controlMessageFormat1.choice.sliceUeUnbindRequest.sliceName.buf,
+	   slice.c_str());
     for (auto it = imsis.begin(); it != imsis.end(); ++it) {
 	E2SM_NEXRAN_IMSI_t *ie = (E2SM_NEXRAN_IMSI_t *)calloc(1,sizeof(*ie));
 	ie->size = strlen(it->c_str());
