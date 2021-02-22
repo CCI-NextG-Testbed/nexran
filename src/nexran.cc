@@ -348,10 +348,15 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
     e2sm::nexran::SliceUeBindRequest *sreq = \
 	new e2sm::nexran::SliceUeBindRequest(slice->getName(),ue->getName());
     sreq->encode();
-    // XXX: for all nodebs (later target bound slice/nodeb pairs only.
+
     for (auto it = db[ResourceType::NodeBResource].begin();
 	 it != db[ResourceType::NodeBResource].end();
 	 ++it) {
+	NodeB *nodeb = (NodeB *)it->second;
+
+	if (!nodeb->is_slice_bound(slice_name))
+	    continue;
+
 	// Each request needs a different RequestId, so we have to
 	// re-encode each time.
 	e2ap::ControlRequest *creq = new e2ap::ControlRequest(
@@ -412,10 +417,15 @@ bool App::unbind_ue_slice(std::string& imsi,std::string& slice_name,
     e2sm::nexran::SliceUeUnbindRequest *sreq = \
 	new e2sm::nexran::SliceUeUnbindRequest(slice->getName(),imsi);
     sreq->encode();
-    // XXX: for all nodebs (later target bound slice/nodeb pairs only.
+
     for (auto it = db[ResourceType::NodeBResource].begin();
 	 it != db[ResourceType::NodeBResource].end();
 	 ++it) {
+	NodeB *nodeb = (NodeB *)it->second;
+
+	if (!nodeb->is_slice_bound(slice_name))
+	    continue;
+
 	// Each request needs a different RequestId, so we have to
 	// re-encode each time.
 	e2ap::ControlRequest *creq = new e2ap::ControlRequest(

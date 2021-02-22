@@ -349,6 +349,11 @@ class NodeB : public Resource<NodeB> {
 	slices.erase(slice_name);
 	return true;
     };
+    bool is_slice_bound(std::string& slice_name) {
+	if (slices.count(slice_name) > 0)
+	    return true;
+	return false;
+    };
 
  private:
     static const char *type_string_map[NodeB::Type::__END__];
