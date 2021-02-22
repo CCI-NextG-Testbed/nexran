@@ -183,6 +183,44 @@ bool App::update(ResourceType rt,std::string& rname,
 	return false;
     }
 
+    if (rt == App::ResourceType::SliceResource) {
+	Slice *slice = (Slice *)db[App::ResourceType::SliceResource][rname];
+
+	ProportionalAllocationPolicy *policy = dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+	e2sm::nexran::ProportionalAllocationPolicy *npolicy = \
+	    new e2sm::nexran::ProportionalAllocationPolicy(policy->getShare());
+	e2sm::nexran::SliceConfig *sc = new e2sm::nexran::SliceConfig(slice->getName(),npolicy);
+	e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(sc);
+	sreq->encode();
+
+	for (auto it = db[ResourceType::NodeBResource].begin();
+	     it != db[ResourceType::NodeBResource].end();
+	     ++it) {
+	    NodeB *nodeb = (NodeB *)it->second;
+
+	    if (!nodeb->is_slice_bound(rname))
+		continue;
+
+	    // Each request needs a different RequestId, so we have to
+	    // re-encode each time.
+	    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+                e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		1,sreq,e2ap::CONTROL_REQUEST_ACK);
+	    creq->encode();
+	    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
+	    msg->Set_mtype(RIC_CONTROL_REQ);
+	    msg->Set_subid(xapp::Message::NO_SUBID);
+	    msg->Set_len(creq->get_len());
+	    xapp::Msg_component payload = msg->Get_payload();
+	    memcpy((char *)payload.get(),(char *)creq->get_buf(),
+		   ((msg->Get_available_size() < creq->get_len())
+		    ? msg->Get_available_size() : creq->get_len()));
+	    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(nodeb->getName().c_str()));
+	    msg->Set_meid(meid);
+	    msg->Send();
+	}
+    }
+
     mutex.unlock();
     return true;
 }
