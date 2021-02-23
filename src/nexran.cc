@@ -157,7 +157,127 @@ bool App::del(ResourceType rt,std::string& rname,
 	return false;
     }
 
+    if (rt == App::ResourceType::UeResource) {
+	Ue *ue = (Ue *)db[App::ResourceType::UeResource][rname];
+	std::string &imsi = ue->getName();
+
+	if (ue->is_bound()
+	    && db[App::ResourceType::SliceResource].count(ue->get_bound_slice()) > 0) {
+	    std::string &slice_name = ue->get_bound_slice();
+	    Slice *slice = (Slice *)db[App::ResourceType::SliceResource][slice_name];
+
+	    if (!slice->unbind_ue(imsi)) {
+		mutex.unlock();
+		if (ae) {
+		    if (!*ae)
+			*ae = new AppError(404);
+		    (*ae)->add(std::string("ue not bound to this slice"));
+		}
+		return false;
+	    }
+
+	    e2sm::nexran::SliceUeUnbindRequest *sreq = \
+		new e2sm::nexran::SliceUeUnbindRequest(slice_name,imsi);
+	    sreq->encode();
+
+	    for (auto it = db[ResourceType::NodeBResource].begin();
+		 it != db[ResourceType::NodeBResource].end();
+		 ++it) {
+		NodeB *nodeb = (NodeB *)it->second;
+
+		if (!nodeb->is_slice_bound(slice_name))
+		    continue;
+
+		// Each request needs a different RequestId, so we have to
+		// re-encode each time.
+		e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+                    e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		    1,sreq,e2ap::CONTROL_REQUEST_ACK);
+		creq->encode();
+		std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
+		msg->Set_mtype(RIC_CONTROL_REQ);
+		msg->Set_subid(xapp::Message::NO_SUBID);
+		msg->Set_len(creq->get_len());
+		xapp::Msg_component payload = msg->Get_payload();
+		memcpy((char *)payload.get(),(char *)creq->get_buf(),
+		       ((msg->Get_available_size() < creq->get_len())
+			? msg->Get_available_size() : creq->get_len()));
+		std::shared_ptr<unsigned char> meid((unsigned char *)strdup(it->second->getName().c_str()));
+		msg->Set_meid(meid);
+		msg->Send();
+	    }
+	}
+    }
+    else if (rt == App::ResourceType::SliceResource) {
+	Slice *slice = (Slice *)db[App::ResourceType::SliceResource][rname];
+
+        e2sm::nexran::SliceDeleteRequest *sreq = \
+	    new e2sm::nexran::SliceDeleteRequest(rname);
+	sreq->encode();
+
+	for (auto it = db[ResourceType::NodeBResource].begin();
+	     it != db[ResourceType::NodeBResource].end();
+	     ++it) {
+	    NodeB *nodeb = (NodeB *)it->second;
+
+	    if (!nodeb->is_slice_bound(rname))
+		continue;
+
+	    // Each request needs a different RequestId, so we have to
+	    // re-encode each time.
+	    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+                e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		1,sreq,e2ap::CONTROL_REQUEST_ACK);
+	    creq->encode();
+	    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
+	    msg->Set_mtype(RIC_CONTROL_REQ);
+	    msg->Set_subid(xapp::Message::NO_SUBID);
+	    msg->Set_len(creq->get_len());
+	    xapp::Msg_component payload = msg->Get_payload();
+	    memcpy((char *)payload.get(),(char *)creq->get_buf(),
+		   ((msg->Get_available_size() < creq->get_len())
+		    ? msg->Get_available_size() : creq->get_len()));
+	    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(it->second->getName().c_str()));
+	    msg->Set_meid(meid);
+	    msg->Send();
+	}
+
+	slice->unbind_all_ues();
+    }
+    else if (rt == App::ResourceType::NodeBResource) {
+	NodeB *nodeb = (NodeB *)db[App::ResourceType::NodeBResource][rname];
+	std::map<std::string,Slice *>& slices = nodeb->get_slices();
+
+	if (!slices.empty()) {
+	    std::list<std::string> deletes;
+	    for (auto it = slices.begin(); it != slices.end(); ++it)
+		deletes.push_back(it->first);
+
+	    e2sm::nexran::SliceDeleteRequest *sreq = \
+		new e2sm::nexran::SliceDeleteRequest(deletes);
+	    sreq->encode();
+
+	    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+                e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		1,sreq,e2ap::CONTROL_REQUEST_ACK);
+	    creq->encode();
+	    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
+	    msg->Set_mtype(RIC_CONTROL_REQ);
+	    msg->Set_subid(xapp::Message::NO_SUBID);
+	    msg->Set_len(creq->get_len());
+	    xapp::Msg_component payload = msg->Get_payload();
+	    memcpy((char *)payload.get(),(char *)creq->get_buf(),
+		   ((msg->Get_available_size() < creq->get_len())
+		    ? msg->Get_available_size() : creq->get_len()));
+	    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(rname.c_str()));
+	    msg->Set_meid(meid);
+	    msg->Send();
+	}
+    }
+
+    delete db[rt][rname];
     db[rt].erase(rname);
+
     mutex.unlock();
 
     return true;
@@ -373,7 +493,7 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
     Ue *ue = (Ue *)db[App::ResourceType::UeResource][imsi];
     Slice *slice = (Slice *)db[App::ResourceType::SliceResource][slice_name];
 	
-    if (!slice->bind_ue(ue)) {
+    if (ue->is_bound() || !slice->bind_ue(ue)) {
 	mutex.unlock();
 	if (ae) {
 	    if (!*ae)
@@ -382,6 +502,7 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
 	}
 	return false;
     }
+    ue->bind_slice(slice_name);
 
     e2sm::nexran::SliceUeBindRequest *sreq = \
 	new e2sm::nexran::SliceUeBindRequest(slice->getName(),ue->getName());

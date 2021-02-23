@@ -202,19 +202,36 @@ class Ue : public Resource<Ue> {
 	: imsi(imsi_) {};
     Ue(const std::string& imsi_,const std::string& tmsi_,
        const std::string& crnti_)
-	: imsi(imsi_),tmsi(tmsi_),crnti(crnti_) {};
+	: imsi(imsi_),tmsi(tmsi_),crnti(crnti_),bound_slice("") {};
     virtual ~Ue() = default;
 
     std::string& getName() { return imsi; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer);
     static Ue *create(rapidjson::Document& d,AppError **ae);
     bool update(rapidjson::Document& d,AppError **ae);
+    bool is_bound() {
+	return !bound_slice.empty();
+    };
+    std::string &get_bound_slice() {
+	return bound_slice;
+    };
+    bool bind_slice(std::string &slice_name) {
+	if (is_bound())
+	    return false;
+	bound_slice = slice_name;
+    };
+    bool unbind_slice() {
+	if (!is_bound())
+	    return false;
+	bound_slice.clear();
+    };
 
  private:
     std::string imsi;
     std::string tmsi;
     std::string crnti;
     bool connected;
+    std::string bound_slice;
 };
 
 class AllocationPolicy {
@@ -291,6 +308,11 @@ class Slice : public Resource<Slice> {
 	ues.erase(imsi);
 	return true;
     };
+    void unbind_all_ues() {
+	for (auto it = ues.begin(); it != ues.end(); ++it)
+	    it->second->unbind_slice();
+	ues.clear();
+    };
 
  private:
     std::string name;
@@ -353,6 +375,9 @@ class NodeB : public Resource<NodeB> {
 	if (slices.count(slice_name) > 0)
 	    return true;
 	return false;
+    };
+    std::map<std::string,Slice *>& get_slices() {
+	return slices;
     };
 
  private:
