@@ -59,7 +59,7 @@ RUN cd /nexran \
        && curl https://www.emulab.net/downloads/johnsond/profile-oai-oran/E2SM-KPM-generated-bindings.tar.gz | tar -xzv -C /nexran/lib/e2sm/messages/generated \
        && echo "RIC_GENERATED_E2SM_KPM_BINDING_DIR:STRING=/nexran/lib/e2sm/messages/generated/E2SM-KPM" >> CMakeCache.txt ) \
      || true \
-  && cmake -DCMAKE_BUILD_TYPE=Debug ../ \
+  && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ../ \
   && make install && ldconfig
 
 ENV RMR_RTG_SVC="9999" \
