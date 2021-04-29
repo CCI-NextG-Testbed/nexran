@@ -1,5 +1,6 @@
 #include "mdclog/mdclog.h"
 #include "pistache/string_logger.h"
+#include "pistache/tcp.h"
 
 #include "nexran.h"
 #include "version.h"
@@ -103,6 +104,7 @@ void RestServer::init(App *app_)
     auto options = Pistache::Http::Endpoint::options().logger(
 	std::make_shared<Pistache::Log::StringToStreamLogger>(
 	    Pistache::Log::Level::DEBUG));
+    options.flags(Pistache::Tcp::Options::ReuseAddr);
     endpoint.init(options);
     endpoint.setHandler(router.handler());
     endpoint.bind(addr);
