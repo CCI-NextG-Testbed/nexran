@@ -5,7 +5,10 @@
 #include "per_encoder.h"
 
 #define E2SM_XER_PRINT(stream,type,pdu)					\
-    do { if (e2sm::xer_print) xer_fprint(stream,type,pdu); } while (0);
+    do {								\
+	if (e2sm::xer_print)						\
+	    xer_fprint((stream == NULL) ? stderr : stream,type,pdu);				\
+    } while (0);
 
 namespace e2sm
 {

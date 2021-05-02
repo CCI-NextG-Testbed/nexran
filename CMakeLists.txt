@@ -31,6 +31,8 @@ endif()
 message(STATUS "found ricxfcpp libs: " ${RICXFCPP_LIBRARIES})
 message(STATUS "found ricxfcpp include dirs: " ${RICXFCPP_INCLUDE_DIRS})
 
+set(CMAKE_CXX_FLAGS "-pthread")
+
 find_path(RMR_INCLUDE_DIRS rmr/rmr.h REQUIRED)
 find_library(RMR_LIBRARIES rmr_si REQUIRED)
 find_package_handle_standard_args(rmr DEFAULT_MSG RMR_LIBRARIES RMR_INCLUDE_DIRS)

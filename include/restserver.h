@@ -6,9 +6,72 @@
 #include <pistache/endpoint.h>
 #include <pistache/router.h>
 
+#include "rapidjson/prettywriter.h"
+
 namespace nexran {
 
 class App;
+
+class RequestError {
+ public:
+    RequestError(int http_status_,std::list<std::string> messages_)
+	: http_status(http_status_),messages(messages_) {};
+    RequestError(int http_status_,std::string message_)
+	: http_status(http_status_),
+	  messages(std::list<std::string>({message_})) {};
+    RequestError(int http_status_)
+	: http_status(http_status_),
+	  messages(std::list<std::string>({})) {};
+    virtual ~RequestError() = default;
+
+    virtual void add(std::string message)
+    {
+	messages.push_back(message);
+    };
+
+    virtual void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
+    {
+	writer.StartObject();
+	writer.String("errors");
+	writer.StartArray();
+	for (auto it = messages.begin(); it != messages.end(); ++it)
+	    writer.String(it->c_str());
+	writer.EndArray();
+	writer.EndObject();
+    };
+
+    int http_status;
+    std::list<std::string> messages;
+};
+
+class RequestContext {
+ public:
+    RequestContext(const Pistache::Rest::Request &request_,
+		   Pistache::Http::ResponseWriter &response_)
+	: request(request_),response(std::move(response_)),sb(),writer(sb),
+	  code(Pistache::Http::Code::Ok),async(false),sent(false) {};
+    virtual ~RequestContext() = default;
+
+    void make_async() { async = true; };
+    bool is_async() { return async; };
+    bool is_sent() { return sent; };
+
+    Pistache::Http::ResponseWriter& get_response() { return response; };
+    rapidjson::Writer<rapidjson::StringBuffer>& get_writer() { return writer; };
+    Pistache::Http::Code get_code() { return code; };
+    void set_code(Pistache::Http::Code code_) { code = code_; };
+
+    virtual void send() { if (sent) return; response.send(code,sb.GetString()); sent = true; };
+
+ protected:
+    Pistache::Http::Code code;
+    bool async;
+    bool sent;
+    const Pistache::Rest::Request request;
+    Pistache::Http::ResponseWriter response;
+    rapidjson::StringBuffer sb;
+    rapidjson::Writer<rapidjson::StringBuffer> writer;
+};
 
 class RestServer {
  public:

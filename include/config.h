@@ -23,6 +23,7 @@ class Config {
 	LOG_LEVEL,
 	ADMIN_HOST,
 	ADMIN_PORT,
+	RMR_NOWAIT,
 	__MAX__
     };
     enum ItemType {

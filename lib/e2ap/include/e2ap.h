@@ -2,19 +2,29 @@
 #define _E2AP_H_
 
 #include <list>
+#include <tuple>
+#include <mutex>
 #include <cstdint>
 #include <string>
 #include <cstdlib>
 #include <ctime>
+#include <map>
+#include <memory>
 
 #define E2AP_XER_PRINT(stream,type,pdu)					\
-    do { if (e2ap::xer_print) xer_fprint(stream,type,pdu); } while (0);
+    do {								\
+	if (e2ap::xer_print)						\
+	    xer_fprint((stream == NULL) ? stderr : stream,type,pdu);	\
+    } while (0);
 
 namespace e2sm {
 
 class Model;
 class Control;
+class ControlOutcome;
 class Indication;
+class EventTrigger;
+class ActionDefinition;
 
 }
 
@@ -46,12 +56,6 @@ class RanFunction {
 
 RanFunctionId get_next_ran_function_id();
 
-typedef enum ControlRequestAck {
-    CONTROL_REQUEST_NONE = 0,
-    CONTROL_REQUEST_ACK,
-    CONTROL_REQUEST_NACK
-} ControlRequestAck_t;
-
 class Message
 {
  public:
@@ -61,8 +65,8 @@ class Message
 	    free(buf);
     }
     virtual bool encode() = 0;
-    virtual unsigned char *get_buf() { return buf; };
-    virtual ssize_t get_len() { return len; };
+    virtual unsigned char *get_buf() { if (!encoded) encode(); return buf; };
+    virtual ssize_t get_len() { if (!encoded) encode(); return len; };
 
  protected:
     bool encoded;
@@ -70,90 +74,364 @@ class Message
     ssize_t len;
 };
 
-class ControlRequest : public Message {
- public:
-    ControlRequest(
-        long requestor_id_,long instance_id_,RanFunctionId function_id_,
-	e2sm::Control *model_,ControlRequestAck_t ack_request_)
-	: requestor_id(requestor_id_),instance_id(instance_id_),
-	  function_id(function_id_),model(model_),
-	  ack_request(ack_request_),Message() {};
-    virtual ~ControlRequest() = default;
+enum ActionType {
+    ACTION_REPORT = 0,
+    ACTION_INSERT = 1,
+    ACTION_POLICY = 2,
+    __ACTION_END__ = 3,
+};
 
-    virtual void set_instance_id(long instance_id_) { instance_id = instance_id_; };
+class Action
+{
+ public:
+    Action(
+	long id_,ActionType type_,e2sm::ActionDefinition *definition_,
+	long subsequent_action_)
+	: id(id_),type(type_),definition(definition_),
+	  subsequent_action(subsequent_action_) {};
+    virtual ~Action() = default;
+
+    long id;
+    ActionType type;
+    e2sm::ActionDefinition *definition;
+    long subsequent_action;
+
+    long time_to_wait;
+    bool enabled;
+    long error_cause;
+    long error_cause_detail;
+};
+
+class Request : public Message
+{
+public:
+    Request(long requestor_id_,long instance_id_)
+	: requestor_id(requestor_id_),instance_id(instance_id_) {};
+    Request()
+	: requestor_id(-1),instance_id(-1) {};
+
+    void set_meid(std::string &meid_) { meid = meid_; };
+
+    long requestor_id;
+    long instance_id;
+    std::string meid;
+};
+
+class SubscriptionRequest : public Request
+{
+ public:
+    SubscriptionRequest(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	e2sm::EventTrigger *trigger_,std::list<Action *>& actions_)
+	: function_id(function_id_),trigger(trigger_),actions(actions_),
+	  Request(requestor_id_,instance_id_) {};
+    virtual ~SubscriptionRequest() = default;
+
+    virtual bool encode();
+
+    RanFunctionId function_id;
+    e2sm::EventTrigger *trigger;
+    std::list<Action *> actions;
+};
+
+class SubscriptionResponse : public Message
+{
+ public:
+    SubscriptionResponse()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  Message() {};
+    SubscriptionResponse(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	std::list<long> actions_admitted_,
+	std::list<std::tuple<long,long,long>> actions_not_admitted_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),actions_admitted(actions_admitted_),
+	  actions_not_admitted(actions_not_admitted_),Message() {};
+    virtual ~SubscriptionResponse() {
+	actions_admitted.clear();
+	actions_not_admitted.clear();
+    }
 
     virtual bool encode();
 
     long requestor_id;
     long instance_id;
     RanFunctionId function_id;
-    e2sm::Control *model;
+    std::list<long> actions_admitted;
+    std::list<std::tuple<long,long,long>> actions_not_admitted;
+
+    std::shared_ptr<SubscriptionRequest> req;
+};
+
+class SubscriptionFailure : public Message
+{
+ public:
+    SubscriptionFailure()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  Message() {};
+    SubscriptionFailure(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	std::list<std::tuple<long,long,long>> actions_not_admitted_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),
+	  actions_not_admitted(actions_not_admitted_),
+	  Message() {};
+    virtual ~SubscriptionFailure() {
+	actions_not_admitted.clear();
+    }
+
+    virtual bool encode();
+
+    long requestor_id;
+    long instance_id;
+    RanFunctionId function_id;
+    std::list<std::tuple<long,long,long>> actions_not_admitted;
+
+    std::shared_ptr<SubscriptionRequest> req;
+};
+
+class SubscriptionDeleteRequest : public Request
+{
+ public:
+    SubscriptionDeleteRequest(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_)
+	: function_id(function_id_),Request(requestor_id_,instance_id_) {};
+    virtual ~SubscriptionDeleteRequest() = default;
+
+    virtual bool encode();
+
+    RanFunctionId function_id;
+};
+
+class SubscriptionDeleteResponse : public Message
+{
+ public:
+    SubscriptionDeleteResponse()
+	: requestor_id(-1),instance_id(-1),function_id(-1),Message() {};
+    SubscriptionDeleteResponse(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),Message() {};
+    virtual ~SubscriptionDeleteResponse() = default;
+
+    virtual bool encode();
+
+    long requestor_id;
+    long instance_id;
+    RanFunctionId function_id;
+
+    std::shared_ptr<SubscriptionRequest> req;
+};
+
+class SubscriptionDeleteFailure : public Message
+{
+ public:
+    SubscriptionDeleteFailure()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  cause(-1),cause_detail(-1),Message() {};
+    SubscriptionDeleteFailure(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	long cause_,long cause_detail_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),cause(cause_),cause_detail(cause_detail_),
+	  Message() {};
+    virtual ~SubscriptionDeleteFailure() = default;
+
+    virtual bool encode();
+
+    long requestor_id;
+    long instance_id;
+    RanFunctionId function_id;
+    long cause;
+    long cause_detail;
+
+    std::shared_ptr<SubscriptionRequest> req;
+};
+
+typedef enum ControlRequestAck
+{
+    CONTROL_REQUEST_NONE = 0,
+    CONTROL_REQUEST_ACK,
+    CONTROL_REQUEST_NACK
+} ControlRequestAck_t;
+
+class ControlRequest : public Request
+{
+ public:
+    ControlRequest(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	e2sm::Control *control_,ControlRequestAck_t ack_request_)
+	: function_id(function_id_),control(control_),
+	  ack_request(ack_request_),Request(requestor_id_,instance_id_) {};
+    virtual ~ControlRequest() = default;
+
+    virtual bool encode();
+
+    RanFunctionId function_id;
+    e2sm::Control *control;
     ControlRequestAck_t ack_request;
 };
 
-class ControlAck {
+class ControlAck : public Message
+{
  public:
-    ControlRequest *request;
+    ControlAck()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  status(-1),outcome(NULL),Message() {};
+    ControlAck(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	long status_,e2sm::ControlOutcome *outcome_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),status(status_),outcome(outcome_),
+	  Message() {};
+    virtual ~ControlAck() = default;
+
+    virtual bool encode();
+
+    long requestor_id;
+    long instance_id;
+    RanFunctionId function_id;
     long status;
-    uint8_t outcome;
-    size_t len;
+    e2sm::ControlOutcome *outcome;
+
+    std::shared_ptr<ControlRequest> req;
 };
 
-class ControlFailure {
+class ControlFailure : public Message
+{
  public:
-    ControlRequest *request;
+    ControlFailure()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  cause(-1),cause_detail(-1),outcome(NULL),Message() {};
+    ControlFailure(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	long cause_,long cause_detail_,e2sm::ControlOutcome *outcome_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),cause(cause_),cause_detail(cause_detail_),
+	  outcome(outcome_),Message() {};
+    virtual ~ControlFailure() = default;
+
+    virtual bool encode();
+
+    long requestor_id;
+    long instance_id;
+    RanFunctionId function_id;
     long cause;
     long cause_detail;
-    uint8_t outcome;
-    size_t len;
+    e2sm::ControlOutcome *outcome;
+
+    std::shared_ptr<ControlRequest> req;
 };
 
-class Indication {
+class Indication : public Message
+{
  public:
-    long request_id;
+    Indication()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  action_id(-1),serial_number(-1),type(-1),
+	  call_process_id(NULL),call_process_id_len(-1),Message() {};
+    Indication(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	long action_id_,long serial_number_,long type_,
+	unsigned char *call_process_id_,size_t call_process_id_len_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),action_id(action_id_),
+	  serial_number(serial_number_),type(type_),
+	  call_process_id(call_process_id_),call_process_id_len(call_process_id_len_),
+	  Message() {};
+    virtual ~Indication() = default;
+
+    virtual bool encode();
+
+    long requestor_id;
+    long instance_id;
     RanFunctionId function_id;
     long action_id;
     long serial_number;
     long type;
+    unsigned char *call_process_id;
+    size_t call_process_id_len;
     e2sm::Indication *model;
-    long call_process_id;
 };
 
-/**
- * These are generic service mechanisms.
- */
-typedef enum {
-    RIC_REPORT = 1,
-    RIC_INSERT = 2,
-    RIC_CONTROL = 3,
-    RIC_POLICY = 4,
-} service_t;
-
-class RicInterface {
+class ErrorIndication : public Message
+{
  public:
-    virtual int handle_control_ack(ControlAck *control) = 0;
-    virtual int handle_control_failure(ControlFailure *control) = 0;
-    virtual int handle_indication(Indication *indication) = 0;
+    ErrorIndication()
+	: requestor_id(-1),instance_id(-1),function_id(-1),
+	  cause(-1),cause_detail(-1),Message() {};
+    ErrorIndication(
+        long requestor_id_,long instance_id_,RanFunctionId function_id_,
+	long cause_,long cause_detail_)
+	: requestor_id(requestor_id_),instance_id(instance_id_),
+	  function_id(function_id_),cause(cause_),cause_detail(cause_detail_),
+	  Message() {};
+    virtual ~ErrorIndication() = default;
+
+    virtual bool encode() {};
+
+    long requestor_id;
+    long instance_id;
+    RanFunctionId function_id;
+    long cause;
+    long cause_detail;
+};
+
+class AgentInterface {
+ public:
+    virtual bool send_message(const unsigned char *buf,ssize_t buf_len,
+			      int mtype,long sub_id,const std::string& meid) = 0;
+    virtual bool handle(SubscriptionResponse *resp) = 0;
+    virtual bool handle(SubscriptionFailure *resp) = 0;
+    virtual bool handle(SubscriptionDeleteResponse *resp) = 0;
+    virtual bool handle(SubscriptionDeleteFailure *resp) = 0;
+    virtual bool handle(ControlAck *control) = 0;
+    virtual bool handle(ControlFailure *control) = 0;
+    virtual bool handle(Indication *ind) = 0;
+    virtual bool handle(ErrorIndication *ind) = 0;
 };
 
 class E2AP {
  public:
-    E2AP()
-	: requestor_id(1),next_instance_id(1) {};
-    // NB: current e2term does not like a random requestor_id; fails to
-    // pass our message along.
-    //{ std::srand(std::time(nullptr)); requestor_id = std::rand(); };
+    E2AP(AgentInterface *agent_if_)
+	: agent_if(agent_if_),requestor_id(1),next_instance_id(1)
+    { std::srand(std::time(nullptr)); requestor_id = std::rand() % 65535; };
     virtual ~E2AP() = default;
     virtual bool init();
 
-    long get_requestor_id() { return requestor_id; };
-    long get_next_instance_id() { return next_instance_id++; };
+    long get_requestor_id() {
+	const std::lock_guard<std::mutex> lock(mutex);
+	return requestor_id;
+    };
+    long get_next_instance_id() {
+	const std::lock_guard<std::mutex> lock(mutex);
+	return next_instance_id++;
+    };
+
+    bool handle_message(const unsigned char *buf,ssize_t len,
+			std::string meid);
+
+    bool send_control_request(std::shared_ptr<ControlRequest> req,
+			      const std::string& meid);
+    bool send_subscription_request(std::shared_ptr<SubscriptionRequest> req,
+				   const std::string& meid);
+    bool send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
+					  const std::string& meid);
+
+    std::shared_ptr<SubscriptionRequest> lookup_subscription
+        (long requestor_id,long instance_id);
+    std::shared_ptr<ControlRequest> lookup_control
+        (long requestor_id,long instance_id);
 
  protected:
+    std::mutex mutex;
     long requestor_id;
     long next_instance_id;
     std::list<e2sm::Model *> models;
-    RicInterface *ric_handler;
+    std::map<long,std::shared_ptr<ControlRequest>> controls;
+    std::map<long,std::shared_ptr<SubscriptionRequest>> subscriptions;
+    std::map<long,std::shared_ptr<SubscriptionDeleteRequest>> subscription_deletes;
+    AgentInterface *agent_if;
 };
 
 }

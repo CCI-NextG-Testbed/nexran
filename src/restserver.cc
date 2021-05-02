@@ -189,6 +189,7 @@ void RestServer::postNodeB(
     }
     if (!app->add(App::ResourceType::NodeBResource,nb,writer,&ae)) {
 	HANDLE_APP_ERROR(ae,Pistache::Http::Code::Bad_Request);
+	delete nb;
 	return;
     }
 
@@ -282,7 +283,7 @@ void RestServer::putNodeB(
     if (!app->update(App::ResourceType::NodeBResource,name,d,&ae)) {
 	if (ae) {
 	    ae->serialize(writer);
-	    response.send((Pistache::Http::Code)ae->http_status,
+	    response.send(static_cast<Pistache::Http::Code>(ae->http_status),
 			  sb.GetString());
 	}
 	else
@@ -377,7 +378,7 @@ void RestServer::putSlice(
     if (!app->update(App::ResourceType::SliceResource,name,d,&ae)) {
 	if (ae) {
 	    ae->serialize(writer);
-	    response.send((Pistache::Http::Code)ae->http_status,
+	    response.send(static_cast<Pistache::Http::Code>(ae->http_status),
 			  sb.GetString());
 	}
 	else
@@ -472,7 +473,7 @@ void RestServer::putUe(
     if (!app->update(App::ResourceType::UeResource,imsi,d,&ae)) {
 	if (ae) {
 	    ae->serialize(writer);
-	    response.send((Pistache::Http::Code)ae->http_status,
+	    response.send(static_cast<Pistache::Http::Code>(ae->http_status),
 			  sb.GetString());
 	}
 	else

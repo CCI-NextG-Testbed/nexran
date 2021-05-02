@@ -1,4 +1,6 @@
 
+#include <chrono>
+
 #include "mdclog/mdclog.h"
 #include "rmr/RIC_message_types.h"
 #include "ricxfcpp/message.hpp"
@@ -23,25 +25,132 @@ void App::handle_rmr_message(
     xapp::Message &msg,int mtype,int subid,int payload_len,
     xapp::Msg_component &payload)
 {
-    mdclog_write(MDCLOG_DEBUG,"RMR message (%d)",mtype);
+    mdclog_write(MDCLOG_DEBUG,"RMR message (type %d, source %s)",
+		 mtype,msg.Get_meid().get());
+
+    switch (mtype) {
+    case RIC_SUB_REQ:
+    case RIC_SUB_RESP:
+    case RIC_SUB_FAILURE:
+    case RIC_SUB_DEL_REQ:
+    case RIC_SUB_DEL_RESP:
+    case RIC_SUB_DEL_FAILURE:
+    case RIC_SERVICE_UPDATE:
+    case RIC_SERVICE_UPDATE_ACK:
+    case RIC_SERVICE_UPDATE_FAILURE:
+    case RIC_CONTROL_REQ:
+    case RIC_CONTROL_ACK:
+    case RIC_CONTROL_FAILURE:
+    case RIC_INDICATION:
+    case RIC_SERVICE_QUERY:
+	break;
+    default:
+	mdclog_write(MDCLOG_WARN,"unsupported RMR message type %d",mtype);
+	return;
+    }
+
+    e2ap.handle_message(payload.get(),payload_len,
+			std::string((char *)msg.Get_meid().get()));
+
     return;
 }
 
-int App::handle_control_ack(e2ap::ControlAck *control)
+bool App::send_message(const unsigned char *buf,ssize_t buf_len,
+		       int mtype,long sub_id,const std::string& meid)
 {
-
+    std::unique_ptr<xapp::Message> msg = Alloc_msg(buf_len);
+    msg->Set_mtype(mtype);
+    msg->Set_subid(sub_id);
+    msg->Set_len(buf_len);
+    xapp::Msg_component payload = msg->Get_payload();
+    memcpy((char *)payload.get(),(char *)buf,
+	   ((msg->Get_available_size() < buf_len)
+	    ? msg->Get_available_size() : buf_len));
+    std::shared_ptr<unsigned char> msg_meid((unsigned char *)strdup(meid.c_str()));
+    msg->Set_meid(msg_meid);
+    return msg->Send();
 }
 
-int App::handle_control_failure(e2ap::ControlFailure *control)
+/*
+ * These handlers work at the App level.  The E2AP request tracking
+ * library stores requests and watches for responses, and by the time
+ * these handlers are invoked, it has constructed that mapping for us.
+ * These handlers map request/response pairs to RequestGroups that came
+ * from the northbound interface.
+ */
+bool App::handle(e2ap::SubscriptionResponse *resp)
 {
-
+    mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionResponse handler");
 }
 
-int App::handle_indication(e2ap::Indication *indication)
+bool App::handle(e2ap::SubscriptionFailure *resp)
 {
-
+    mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionFailure handler");
 }
 
+bool App::handle(e2ap::SubscriptionDeleteResponse *resp)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionDeleteResponse handler");
+}
+
+bool App::handle(e2ap::SubscriptionDeleteFailure *resp)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionDeleteFailure handler");
+}
+    
+bool App::handle(e2ap::ControlAck *control)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran ControlAck handler");
+}
+
+bool App::handle(e2ap::ControlFailure *control)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran ControlFailure handler");
+}
+
+bool App::handle(e2ap::Indication *ind)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran Indication handler");
+}
+
+bool App::handle(e2ap::ErrorIndication *ind)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran ErrorIndication handler");
+}
+
+bool App::handle(e2sm::nexran::SliceStatusIndication *ind)
+{
+    mdclog_write(MDCLOG_DEBUG,"nexran SliceStatusIndication handler");
+}
+
+void App::response_handler()
+{
+    std::unique_lock<std::mutex> lock(mutex);
+
+    while (!should_stop) {
+	if (cv.wait_for(lock,std::chrono::seconds(1)) == std::cv_status::timeout)
+	    continue;
+	for (auto it = request_groups.begin(); it != request_groups.end(); ++it) {
+	    int succeeded = 0,failed = 0,pending = 0;
+	    RequestGroup *group = *it;
+	    if (group->is_done(&succeeded,&failed,&pending)
+		|| group->is_expired()) {
+		std::shared_ptr<RequestContext> ctx = group->get_ctx();
+		Pistache::Http::ResponseWriter& response = ctx->get_response();
+		if (pending)
+		    response.send(static_cast<Pistache::Http::Code>(504));
+		else if (failed)
+		    response.send(static_cast<Pistache::Http::Code>(502));
+		else
+		    response.send(static_cast<Pistache::Http::Code>(200));
+
+		request_groups.erase(it);
+	    }
+	}
+	lock.unlock();
+	cv.notify_one();
+    }
+}
 
 void App::init()
 {
@@ -53,6 +162,8 @@ void App::start()
     if (running)
 	return;
 
+    should_stop = false;
+
     /*
      * Init the E2.  Note there is nothing to do until we are configured
      * via northbound interface with objects.  Eventually we should
@@ -60,9 +171,16 @@ void App::start()
      */
     e2ap.init();
 
+    Add_msg_cb(RIC_SUB_RESP,rmr_callback,this);
+    Add_msg_cb(RIC_SUB_FAILURE,rmr_callback,this);
+    Add_msg_cb(RIC_SUB_DEL_RESP,rmr_callback,this);
+    Add_msg_cb(RIC_SUB_DEL_FAILURE,rmr_callback,this);
     Add_msg_cb(RIC_CONTROL_ACK,rmr_callback,this);
     Add_msg_cb(RIC_CONTROL_FAILURE,rmr_callback,this);
     Add_msg_cb(RIC_INDICATION,rmr_callback,this);
+
+    rmr_thread = new std::thread(&App::Listen,this);
+    response_thread = new std::thread(&App::response_handler,this);
 
     /*
      * Init and start the northbound interface.
@@ -79,7 +197,14 @@ void App::stop()
     server.stop();
     /* Stop the RMR Messenger superclass. */
     Stop();
+    rmr_thread->join();
+    delete rmr_thread;
+    rmr_thread = NULL;
+    response_thread->join();
+    delete response_thread;
+    response_thread = NULL;
     running = false;
+    should_stop = false;
 }
 
 void App::serialize(ResourceType rt,
@@ -140,6 +265,33 @@ bool App::add(ResourceType rt,AbstractResource *resource,
     db[rt][rname] = resource;
     resource->serialize(writer);
     mutex.unlock();
+
+    if (rt == App::ResourceType::NodeBResource) {
+	/*
+	e2sm::nexran::EventTrigger *trigger = \
+	    new e2sm::nexran::EventTrigger(nexran,1000);
+	std::list<e2ap::Action *> actions;
+	actions.push_back(new e2ap::Action(1,e2ap::ACTION_REPORT,NULL,-1));
+	std::shared_ptr<e2ap::SubscriptionRequest> req = \
+	    std::make_shared<e2ap::SubscriptionRequest>(
+		e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		1,trigger,actions);
+	req->set_meid(rname);
+	e2ap.send_subscription_request(req,rname);
+	*/
+
+	e2sm::nexran::SliceStatusRequest *sreq = \
+	    new e2sm::nexran::SliceStatusRequest(nexran);
+	std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
+            e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+	    1,sreq,e2ap::CONTROL_REQUEST_ACK);
+	creq->set_meid(rname);
+	e2ap.send_control_request(creq,rname);
+    }
+
+    mdclog_write(MDCLOG_DEBUG,"added %s %s",
+		 rtype_to_label[rt],resource->getName().c_str());
+
     return true;
 }
 
@@ -156,6 +308,9 @@ bool App::del(ResourceType rt,std::string& rname,
 	}
 	return false;
     }
+
+    mdclog_write(MDCLOG_DEBUG,"deleting %s %s",
+		 rtype_to_label[rt],rname.c_str());
 
     if (rt == App::ResourceType::UeResource) {
 	Ue *ue = (Ue *)db[App::ResourceType::UeResource][rname];
@@ -177,8 +332,7 @@ bool App::del(ResourceType rt,std::string& rname,
 	    }
 
 	    e2sm::nexran::SliceUeUnbindRequest *sreq = \
-		new e2sm::nexran::SliceUeUnbindRequest(slice_name,imsi);
-	    sreq->encode();
+		new e2sm::nexran::SliceUeUnbindRequest(nexran,slice_name,imsi);
 
 	    for (auto it = db[ResourceType::NodeBResource].begin();
 		 it != db[ResourceType::NodeBResource].end();
@@ -190,21 +344,11 @@ bool App::del(ResourceType rt,std::string& rname,
 
 		// Each request needs a different RequestId, so we have to
 		// re-encode each time.
-		e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+		std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
                     e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 		    1,sreq,e2ap::CONTROL_REQUEST_ACK);
-		creq->encode();
-		std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-		msg->Set_mtype(RIC_CONTROL_REQ);
-		msg->Set_subid(xapp::Message::NO_SUBID);
-		msg->Set_len(creq->get_len());
-		xapp::Msg_component payload = msg->Get_payload();
-		memcpy((char *)payload.get(),(char *)creq->get_buf(),
-		       ((msg->Get_available_size() < creq->get_len())
-			? msg->Get_available_size() : creq->get_len()));
-		std::shared_ptr<unsigned char> meid((unsigned char *)strdup(it->second->getName().c_str()));
-		msg->Set_meid(meid);
-		msg->Send();
+		creq->set_meid(nodeb->getName());
+		e2ap.send_control_request(creq,nodeb->getName());
 	    }
 	}
     }
@@ -212,8 +356,7 @@ bool App::del(ResourceType rt,std::string& rname,
 	Slice *slice = (Slice *)db[App::ResourceType::SliceResource][rname];
 
         e2sm::nexran::SliceDeleteRequest *sreq = \
-	    new e2sm::nexran::SliceDeleteRequest(rname);
-	sreq->encode();
+	    new e2sm::nexran::SliceDeleteRequest(nexran,rname);
 
 	for (auto it = db[ResourceType::NodeBResource].begin();
 	     it != db[ResourceType::NodeBResource].end();
@@ -225,21 +368,11 @@ bool App::del(ResourceType rt,std::string& rname,
 
 	    // Each request needs a different RequestId, so we have to
 	    // re-encode each time.
-	    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+	    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
                 e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 		1,sreq,e2ap::CONTROL_REQUEST_ACK);
-	    creq->encode();
-	    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-	    msg->Set_mtype(RIC_CONTROL_REQ);
-	    msg->Set_subid(xapp::Message::NO_SUBID);
-	    msg->Set_len(creq->get_len());
-	    xapp::Msg_component payload = msg->Get_payload();
-	    memcpy((char *)payload.get(),(char *)creq->get_buf(),
-		   ((msg->Get_available_size() < creq->get_len())
-		    ? msg->Get_available_size() : creq->get_len()));
-	    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(it->second->getName().c_str()));
-	    msg->Set_meid(meid);
-	    msg->Send();
+	    creq->set_meid(nodeb->getName());
+	    e2ap.send_control_request(creq,nodeb->getName());
 	}
 
 	slice->unbind_all_ues();
@@ -254,24 +387,13 @@ bool App::del(ResourceType rt,std::string& rname,
 		deletes.push_back(it->first);
 
 	    e2sm::nexran::SliceDeleteRequest *sreq = \
-		new e2sm::nexran::SliceDeleteRequest(deletes);
-	    sreq->encode();
+		new e2sm::nexran::SliceDeleteRequest(nexran,deletes);
 
-	    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+	    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
                 e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 		1,sreq,e2ap::CONTROL_REQUEST_ACK);
-	    creq->encode();
-	    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-	    msg->Set_mtype(RIC_CONTROL_REQ);
-	    msg->Set_subid(xapp::Message::NO_SUBID);
-	    msg->Set_len(creq->get_len());
-	    xapp::Msg_component payload = msg->Get_payload();
-	    memcpy((char *)payload.get(),(char *)creq->get_buf(),
-		   ((msg->Get_available_size() < creq->get_len())
-		    ? msg->Get_available_size() : creq->get_len()));
-	    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(rname.c_str()));
-	    msg->Set_meid(meid);
-	    msg->Send();
+	    creq->set_meid(nodeb->getName());
+	    e2ap.send_control_request(creq,nodeb->getName());
 	}
     }
 
@@ -310,7 +432,7 @@ bool App::update(ResourceType rt,std::string& rname,
 	e2sm::nexran::ProportionalAllocationPolicy *npolicy = \
 	    new e2sm::nexran::ProportionalAllocationPolicy(policy->getShare());
 	e2sm::nexran::SliceConfig *sc = new e2sm::nexran::SliceConfig(slice->getName(),npolicy);
-	e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(sc);
+	e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(nexran,sc);
 	sreq->encode();
 
 	for (auto it = db[ResourceType::NodeBResource].begin();
@@ -323,25 +445,19 @@ bool App::update(ResourceType rt,std::string& rname,
 
 	    // Each request needs a different RequestId, so we have to
 	    // re-encode each time.
-	    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+	    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
                 e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 		1,sreq,e2ap::CONTROL_REQUEST_ACK);
-	    creq->encode();
-	    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-	    msg->Set_mtype(RIC_CONTROL_REQ);
-	    msg->Set_subid(xapp::Message::NO_SUBID);
-	    msg->Set_len(creq->get_len());
-	    xapp::Msg_component payload = msg->Get_payload();
-	    memcpy((char *)payload.get(),(char *)creq->get_buf(),
-		   ((msg->Get_available_size() < creq->get_len())
-		    ? msg->Get_available_size() : creq->get_len()));
-	    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(nodeb->getName().c_str()));
-	    msg->Set_meid(meid);
-	    msg->Send();
+	    creq->set_meid(nodeb->getName());
+	    e2ap.send_control_request(creq,nodeb->getName());
 	}
     }
 
     mutex.unlock();
+
+    mdclog_write(MDCLOG_DEBUG,"updated %s %s",
+		 rtype_to_label[rt],rname.c_str());
+
     return true;
 }
 
@@ -384,26 +500,17 @@ bool App::bind_slice_nodeb(std::string& slice_name,std::string& nodeb_name,
     e2sm::nexran::ProportionalAllocationPolicy *npolicy = \
 	new e2sm::nexran::ProportionalAllocationPolicy(policy->getShare());
     e2sm::nexran::SliceConfig *sc = new e2sm::nexran::SliceConfig(slice->getName(),npolicy);
-    e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(sc);
-    sreq->encode();
-    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+    e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(nexran,sc);
+    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
         e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 	1,sreq,e2ap::CONTROL_REQUEST_ACK);
-    creq->encode();
+    creq->set_meid(nodeb->getName());
+    e2ap.send_control_request(creq,nodeb->getName());
 
-    // Unlock here; we're done with shared info.
     mutex.unlock();
 
-    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-    msg->Set_mtype(RIC_CONTROL_REQ);
-    msg->Set_subid(xapp::Message::NO_SUBID);
-    msg->Set_len(creq->get_len());
-    xapp::Msg_component payload = msg->Get_payload();
-    memcpy((char *)payload.get(),(char *)creq->get_buf(),
-	   (msg->Get_available_size() < creq->get_len()) ? msg->Get_available_size() : creq->get_len());
-    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(nodeb->getName().c_str()));
-    msg->Set_meid(meid);
-    msg->Send();
+    mdclog_write(MDCLOG_DEBUG,"bound slice %s to nodeb %s",
+		 slice_name.c_str(),nodeb->getName().c_str());
 
     return true;
 }
@@ -443,27 +550,17 @@ bool App::unbind_slice_nodeb(std::string& slice_name,std::string& nodeb_name,
     }
 
     e2sm::nexran::SliceDeleteRequest *sreq = \
-	new e2sm::nexran::SliceDeleteRequest(slice_name);
-    sreq->encode();
-    e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+	new e2sm::nexran::SliceDeleteRequest(nexran,slice_name);
+    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
         e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 	1,sreq,e2ap::CONTROL_REQUEST_ACK);
-    creq->encode();
+    creq->set_meid(nodeb->getName());
+    e2ap.send_control_request(creq,nodeb->getName());
 
-    // Unlock here; we're done with shared info.
     mutex.unlock();
 
-    std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-    msg->Set_mtype(RIC_CONTROL_REQ);
-    msg->Set_subid(xapp::Message::NO_SUBID);
-    msg->Set_len(creq->get_len());
-    xapp::Msg_component payload = msg->Get_payload();
-    memcpy((char *)payload.get(),(char *)creq->get_buf(),
-	   ((msg->Get_available_size() < creq->get_len())
-	    ? msg->Get_available_size() : creq->get_len()));
-    std::shared_ptr<unsigned char> meid((unsigned char *)strdup(nodeb->getName().c_str()));
-    msg->Set_meid(meid);
-    msg->Send();
+    mdclog_write(MDCLOG_DEBUG,"unbound slice %s from nodeb %s",
+		 slice_name.c_str(),nodeb->getName().c_str());
 
     return true;
 }
@@ -505,8 +602,7 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
     ue->bind_slice(slice_name);
 
     e2sm::nexran::SliceUeBindRequest *sreq = \
-	new e2sm::nexran::SliceUeBindRequest(slice->getName(),ue->getName());
-    sreq->encode();
+	new e2sm::nexran::SliceUeBindRequest(nexran,slice->getName(),ue->getName());
 
     for (auto it = db[ResourceType::NodeBResource].begin();
 	 it != db[ResourceType::NodeBResource].end();
@@ -518,24 +614,18 @@ bool App::bind_ue_slice(std::string& imsi,std::string& slice_name,
 
 	// Each request needs a different RequestId, so we have to
 	// re-encode each time.
-	e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+	std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 	    1,sreq,e2ap::CONTROL_REQUEST_ACK);
-	creq->encode();
-	std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-	msg->Set_mtype(RIC_CONTROL_REQ);
-	msg->Set_subid(xapp::Message::NO_SUBID);
-	msg->Set_len(creq->get_len());
-	xapp::Msg_component payload = msg->Get_payload();
-	memcpy((char *)payload.get(),(char *)creq->get_buf(),
-	       ((msg->Get_available_size() < creq->get_len())
-		? msg->Get_available_size() : creq->get_len()));
-	std::shared_ptr<unsigned char> meid((unsigned char *)strdup(it->second->getName().c_str()));
-	msg->Set_meid(meid);
-	msg->Send();
+	creq->set_meid(nodeb->getName());
+	e2ap.send_control_request(creq,nodeb->getName());
     }
 
     mutex.unlock();
+
+    mdclog_write(MDCLOG_DEBUG,"bound ue %s to nodeb %s",
+		 imsi.c_str(),slice_name.c_str());
+
     return true;
 }
 
@@ -574,8 +664,7 @@ bool App::unbind_ue_slice(std::string& imsi,std::string& slice_name,
     }
 
     e2sm::nexran::SliceUeUnbindRequest *sreq = \
-	new e2sm::nexran::SliceUeUnbindRequest(slice->getName(),imsi);
-    sreq->encode();
+	new e2sm::nexran::SliceUeUnbindRequest(nexran,slice->getName(),imsi);
 
     for (auto it = db[ResourceType::NodeBResource].begin();
 	 it != db[ResourceType::NodeBResource].end();
@@ -587,24 +676,18 @@ bool App::unbind_ue_slice(std::string& imsi,std::string& slice_name,
 
 	// Each request needs a different RequestId, so we have to
 	// re-encode each time.
-	e2ap::ControlRequest *creq = new e2ap::ControlRequest(
+	std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 	    1,sreq,e2ap::CONTROL_REQUEST_ACK);
-	creq->encode();
-	std::unique_ptr<xapp::Message> msg = Alloc_msg(creq->get_len());
-	msg->Set_mtype(RIC_CONTROL_REQ);
-	msg->Set_subid(xapp::Message::NO_SUBID);
-	msg->Set_len(creq->get_len());
-	xapp::Msg_component payload = msg->Get_payload();
-	memcpy((char *)payload.get(),(char *)creq->get_buf(),
-	       ((msg->Get_available_size() < creq->get_len())
-		? msg->Get_available_size() : creq->get_len()));
-	std::shared_ptr<unsigned char> meid((unsigned char *)strdup(it->second->getName().c_str()));
-	msg->Set_meid(meid);
-	msg->Send();
+	creq->set_meid(nodeb->getName());
+	e2ap.send_control_request(creq,nodeb->getName());
     }
 
     mutex.unlock();
+
+    mdclog_write(MDCLOG_DEBUG,"unbound ue %s from nodeb %s",
+		 imsi.c_str(),slice_name.c_str());
+
     return true;
 }
 

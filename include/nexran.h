@@ -5,10 +5,12 @@
 #include <list>
 #include <map>
 #include <mutex>
+#include <condition_variable>
 #include <thread>
 #include <cstring>
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
 
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/document.h"
@@ -18,41 +20,21 @@
 #include "restserver.h"
 #include "config.h"
 #include "e2ap.h"
+#include "e2sm.h"
+#include "e2sm_nexran.h"
 
 namespace nexran {
 
-class AppError {
+class AppError : public RequestError {
  public:
     AppError(int http_status_,std::list<std::string> messages_)
-	: http_status(http_status_),messages(messages_) {};
+	: RequestError(http_status_,messages_) {};
     AppError(int http_status_,std::string message_)
-	: http_status(http_status_),
-	  messages(std::list<std::string>({message_})) {};
+	: RequestError(http_status_,message_) {};
     AppError(int http_status_)
-	: http_status(http_status_),
-	  messages(std::list<std::string>({})) {};
+	: RequestError(http_status_) {};
     virtual ~AppError() = default;
 
-    void add(std::string message)
-    {
-	messages.push_back(message);
-    };
-
-    void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
-    {
-	writer.StartObject();
-	writer.String("errors");
-	writer.StartArray();
-	for (auto it = messages.begin(); it != messages.end(); ++it) {
-	    writer.String(it->c_str());
-	}
-	writer.EndArray();
-	writer.EndObject();
-    };
-
-    int status;
-    int http_status;
-    std::list<std::string> messages;
 };
 
 class AbstractResource {
@@ -404,7 +386,86 @@ class SliceMetrics {
     const Slice& slice;
 };
 
-class App : public xapp::Messenger, public e2ap::RicInterface {
+/*
+ * This class tracks northbound requests that map to multiple requests
+ * to different RAN nodes (NodeBs).  A watcher thread in the App looks
+ * for completion/timeout and sends a response to the caller.  Note that
+ * this does not handle the case where the caller disconnects before we
+ * timeout; not our problem.
+ */
+class RequestGroup
+{
+ public:
+    enum RequestState {
+	PENDING = 0,
+	SUCCESS = 1,
+	FAILURE = 2
+    };
+
+    class RequestStatus {
+     public:
+	RequestStatus(std::shared_ptr<e2ap::Request> req_)
+	    : req(req_),state(PENDING) {};
+	~RequestStatus() = default;
+
+	std::shared_ptr<e2ap::Request> req;
+	RequestState state;
+    };
+
+    RequestGroup(std::shared_ptr<RequestContext> ctx_,int timeout_ = 8)
+	: ctx(ctx_),timeout(std::time(nullptr) + timeout_) {};
+    virtual ~RequestGroup() = default;
+
+    virtual bool add(std::shared_ptr<e2ap::Request> req) {
+	requests[req->instance_id] = new RequestStatus(req);
+    };
+    virtual void update(long instance_id,RequestState state) {
+	if (requests.count(instance_id) <= 0)
+	    return;
+	requests[instance_id]->state = state;
+    };
+    virtual bool is_done(int *succeeded,int *failed,int *pending) {
+	bool ret = true;
+	for (auto it = requests.begin(); it != requests.end(); ++it) {
+	    switch (it->second->state) {
+	    case PENDING:
+		if (pending)
+		    ++*pending;
+		ret = false;
+		break;
+	    case SUCCESS:
+		if (succeeded)
+		    ++*succeeded;
+		break;
+	    case FAILURE:
+		if (failed)
+		    ++*failed;
+		break;
+	    default:
+		break;
+	    }
+	}
+	return ret;
+    };
+    virtual bool is_expired() {
+	if (std::time(nullptr) > timeout)
+	    return true;
+	return false;
+    };
+
+    std::shared_ptr<RequestContext> get_ctx() { return ctx; };
+
+ protected:
+    std::shared_ptr<RequestContext> ctx;
+    time_t timeout;
+    std::map<long,RequestStatus *> requests;
+};
+
+class App
+    : public xapp::Messenger,
+      public e2ap::AgentInterface,
+      public e2sm::nexran::AgentInterface
+{
  public:
     typedef enum {
 	NodeBResource = 0,
@@ -413,19 +474,35 @@ class App : public xapp::Messenger, public e2ap::RicInterface {
     } ResourceType;
 
     App(Config &config_)
-	: config(config_),running(false),xapp::Messenger(NULL,false) { };
+	: e2ap(this),config(config_),running(false),should_stop(false),
+	  rmr_thread(NULL),response_thread(NULL),
+	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
+	  nexran(new e2sm::nexran::NexRANModel(this)) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
     virtual void stop();
+    virtual void response_handler();
 
+    // xapp::Messenger callback
     virtual void handle_rmr_message(
 	xapp::Message &msg,int mtype,int subid,int payload_len,
 	xapp::Msg_component &payload);
 
-    int handle_control_ack(e2ap::ControlAck *control);
-    int handle_control_failure(e2ap::ControlFailure *control);
-    int handle_indication(e2ap::Indication *indication);
+    // e2ap::RicAgentInterface util/handler functions
+    bool send_message(const unsigned char *buf,ssize_t buf_len,
+		      int mtype,long sub_id,const std::string& meid);
+    bool handle(e2ap::SubscriptionResponse *resp);
+    bool handle(e2ap::SubscriptionFailure *resp);
+    bool handle(e2ap::SubscriptionDeleteResponse *resp);
+    bool handle(e2ap::SubscriptionDeleteFailure *resp);
+    bool handle(e2ap::ControlAck *control);
+    bool handle(e2ap::ControlFailure *control);
+    bool handle(e2ap::Indication *indication);
+    bool handle(e2ap::ErrorIndication *ind);
+
+    // e2sm::nexran::AgentInterface handler functions
+    bool handle(e2sm::nexran::SliceStatusIndication *ind);
 
     void serialize(ResourceType rt,
 		   rapidjson::Writer<rapidjson::StringBuffer>& writer);
@@ -437,6 +514,8 @@ class App : public xapp::Messenger, public e2ap::RicInterface {
 	     AppError **ae);
     bool del(ResourceType rt,std::string& rname,
 	     AppError **ae);
+    bool create(std::shared_ptr<RequestContext> ctx,ResourceType rt,
+		rapidjson::Document& d);
     bool update(ResourceType rt,std::string& rname,
 		rapidjson::Document& d,AppError **ae);
 
@@ -452,10 +531,16 @@ class App : public xapp::Messenger, public e2ap::RicInterface {
     Config &config;
 
  private:
+    std::thread *rmr_thread;
+    std::thread *response_thread;
+    bool should_stop;
     e2ap::E2AP e2ap;
+    e2sm::nexran::NexRANModel *nexran;
     bool running;
     RestServer server;
     std::mutex mutex;
+    std::condition_variable cv;
+    std::list<RequestGroup *> request_groups;
     std::map<ResourceType,std::map<std::string,AbstractResource *>> db;
     std::map<ResourceType,const char *> rtype_to_label = {
 	{ ResourceType::NodeBResource, "nodeb" },

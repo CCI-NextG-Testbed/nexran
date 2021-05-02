@@ -28,6 +28,9 @@ nexran::Config::Config()
     config[ADMIN_PORT] = new Item(
 	INTEGER,'a',"admin-port","ADMIN_PORT",false,new ItemValue(8000),
 	"The northbound interface listen port.");
+    config[RMR_NOWAIT] = new Item(
+	BOOL,'R',"rmr-nowait","RMR_NOWAIT",false,new ItemValue(false),
+	"Do not wait for RMR route established (waits by default).");
 
     optstr = (char *)calloc(config.size() + 2 + 1,2);
     long_options = (struct option *)calloc(config.size() + 2,
@@ -79,7 +82,7 @@ bool nexran::Config::parseEnv()
 	    continue;
 
 	if (item->type == BOOL)
-	    item->value.b = true;
+	    item->value.b = not item->value.b;
 	else if (item->type == STRING)
 	    item->value.s = val;
 	else if (item->type == INTEGER)
