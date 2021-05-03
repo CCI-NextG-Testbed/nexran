@@ -10,6 +10,7 @@
 #include "e2ap.h"
 #include "e2sm.h"
 #include "e2sm_nexran.h"
+#include "e2sm_kpm.h"
 
 namespace nexran {
 

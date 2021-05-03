@@ -65,6 +65,7 @@ add_library(
   ${E2SM_NEXRAN_source}
   src/e2sm.cc
   src/e2sm_nexran.cc
+  src/e2sm_kpm.cc
   )
 include_directories(${E2SM_KPM_C_DIR})
 include_directories(${E2SM_NEXRAN_C_DIR})
