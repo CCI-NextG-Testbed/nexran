@@ -96,7 +96,7 @@ Indication *NexRANModel::decode(e2ap::Indication *ind,
 	    return NULL;
 	}
 	have_message = true;
-	E2SM_XER_PRINT(NULL,&asn_DEF_E2SM_NEXRAN_E2SM_NexRAN_IndicationMessage,&h);
+	E2SM_XER_PRINT(NULL,&asn_DEF_E2SM_NEXRAN_E2SM_NexRAN_IndicationMessage,&m);
     }
     if (!have_header) {
 	mdclog_write(MDCLOG_ERR,"missing nexran indication header; aborting\n");

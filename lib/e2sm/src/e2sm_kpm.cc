@@ -58,7 +58,7 @@ Indication *KpmModel::decode(e2ap::Indication *ind,
 	    return NULL;
 	}
 	have_message = true;
-	E2SM_XER_PRINT(NULL,&asn_DEF_E2SM_KPM_E2SM_KPM_IndicationMessage,&h);
+	E2SM_XER_PRINT(NULL,&asn_DEF_E2SM_KPM_E2SM_KPM_IndicationMessage,&m);
     }
     if (!have_header) {
 	mdclog_write(MDCLOG_ERR,"missing kpm indication header; aborting\n");
