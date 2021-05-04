@@ -380,7 +380,8 @@ class ErrorIndication : public Message
 class AgentInterface {
  public:
     virtual bool send_message(const unsigned char *buf,ssize_t buf_len,
-			      int mtype,long sub_id,const std::string& meid) = 0;
+			      int mtype,int subid,const std::string& meid,
+			      const std::string& xid) = 0;
     virtual bool handle(SubscriptionResponse *resp) = 0;
     virtual bool handle(SubscriptionFailure *resp) = 0;
     virtual bool handle(SubscriptionDeleteResponse *resp) = 0;
@@ -408,8 +409,8 @@ class E2AP {
 	return next_instance_id++;
     };
 
-    bool handle_message(const unsigned char *buf,ssize_t len,
-			std::string meid);
+    bool handle_message(const unsigned char *buf,ssize_t len,int subid,
+			std::string meid,std::string xid);
 
     bool send_control_request(std::shared_ptr<ControlRequest> req,
 			      const std::string& meid);
@@ -418,8 +419,15 @@ class E2AP {
     bool send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
 					  const std::string& meid);
 
+    /*
+     * NB: at present time, the RIC aggregates subscriptions on its
+     * requestorID, so we cannot use that to lookup our subscription.  We
+     * have to use the RMR subid.
+     */
+    std::shared_ptr<SubscriptionRequest> lookup_pending_subscription
+        (std::string& xid);
     std::shared_ptr<SubscriptionRequest> lookup_subscription
-        (long requestor_id,long instance_id);
+        (int subid);
     std::shared_ptr<ControlRequest> lookup_control
         (long requestor_id,long instance_id);
 
@@ -429,7 +437,8 @@ class E2AP {
     long next_instance_id;
     std::list<e2sm::Model *> models;
     std::map<long,std::shared_ptr<ControlRequest>> controls;
-    std::map<long,std::shared_ptr<SubscriptionRequest>> subscriptions;
+    std::map<std::string,std::shared_ptr<SubscriptionRequest>> pending_subscriptions;
+    std::map<int,std::shared_ptr<SubscriptionRequest>> subscriptions;
     std::map<long,std::shared_ptr<SubscriptionDeleteRequest>> subscription_deletes;
     AgentInterface *agent_if;
 };

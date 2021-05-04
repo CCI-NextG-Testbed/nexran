@@ -8,7 +8,6 @@ ARG ORAN_REPO=release
 # get the latest stuff upstream in packagecloud $ORAN_REPO.
 ARG ORAN_VERSIONS=
 ARG MDCLOG_VERSION=0.1.1-1
-ARG RICXFCPP_VERSION=2.3.3
 ARG RMR_VERSION=4.4.6
 
 RUN apt-get update \
@@ -19,14 +18,20 @@ RUN apt-get update \
   && ( [ "${ORAN_VERSIONS}" = "latest" ] \
       || apt-get install -y \
              mdclog=$MDCLOG_VERSION mdclog-dev=$MDCLOG_VERSION \
-             ricxfcpp=$RICXFCPP_VERSION ricxfcpp-dev=$RICXFCPP_VERSION \
 	     rmr=$RMR_VERSION rmr-dev=$RMR_VERSION \
       && apt-get install -y \
              mdclog mdclog-dev \
-	     ricxfcpp ricxfcpp-dev \
 	     rmr rmr-dev \
      ) \
   && rm -rf /var/lib/apt/lists/*
+
+RUN cd /tmp \
+  && git clone https://gitlab.flux.utah.edu/powderrenewpublic/xapp-frame-cpp \
+  && cd xapp-frame-cpp \
+  && mkdir -p build && cd build \
+  && cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DDEV_PKG=1 .. \
+  && make && make install && ldconfig \
+  && cd /tmp && rm -rf /tmp/xapp-frame-cpp
 
 RUN cd /tmp \
   && git clone https://gitlab.flux.utah.edu/powderrenewpublic/asn1c-eurecom asn1c \

@@ -57,6 +57,10 @@ class KpmModel : public e2sm::Model
     Indication *decode(e2ap::Indication *ind,
 		       unsigned char *header,ssize_t header_len,
 		       unsigned char *message,ssize_t message_len);
+    ControlOutcome *decode(e2ap::ControlAck *ack,
+			   unsigned char *outcome,ssize_t outcome_len);
+    ControlOutcome *decode(e2ap::ControlFailure *failure,
+			   unsigned char *outcome,ssize_t outcome_len);
 
  protected:
     AgentInterface *agent_if;

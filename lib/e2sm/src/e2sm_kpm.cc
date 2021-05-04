@@ -87,6 +87,18 @@ Indication *KpmModel::decode(e2ap::Indication *ind,
     return NULL;
 }
 
+ControlOutcome *KpmModel::decode(e2ap::ControlAck *ack,
+				 unsigned char *outcome,ssize_t outcome_len)
+{
+    return NULL;
+}
+
+ControlOutcome *KpmModel::decode(e2ap::ControlFailure *failure,
+				 unsigned char *outcome,ssize_t outcome_len)
+{
+    return NULL;
+}
+
 bool EventTrigger::encode()
 {
     if (encoded)

@@ -22,6 +22,7 @@
 #include "e2ap.h"
 #include "e2sm.h"
 #include "e2sm_nexran.h"
+#include "e2sm_kpm.h"
 
 namespace nexran {
 
@@ -464,7 +465,8 @@ class RequestGroup
 class App
     : public xapp::Messenger,
       public e2ap::AgentInterface,
-      public e2sm::nexran::AgentInterface
+      public e2sm::nexran::AgentInterface,
+      public e2sm::kpm::AgentInterface
 {
  public:
     typedef enum {
@@ -477,7 +479,8 @@ class App
 	: e2ap(this),config(config_),running(false),should_stop(false),
 	  rmr_thread(NULL),response_thread(NULL),
 	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
-	  nexran(new e2sm::nexran::NexRANModel(this)) { };
+	  nexran(new e2sm::nexran::NexRANModel(this)),
+	  kpm(new e2sm::kpm::KpmModel(this)) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
@@ -491,7 +494,8 @@ class App
 
     // e2ap::RicAgentInterface util/handler functions
     bool send_message(const unsigned char *buf,ssize_t buf_len,
-		      int mtype,long sub_id,const std::string& meid);
+		      int mtype,int subid,const std::string& meid,
+		      const std::string& xid);
     bool handle(e2ap::SubscriptionResponse *resp);
     bool handle(e2ap::SubscriptionFailure *resp);
     bool handle(e2ap::SubscriptionDeleteResponse *resp);
@@ -503,6 +507,8 @@ class App
 
     // e2sm::nexran::AgentInterface handler functions
     bool handle(e2sm::nexran::SliceStatusIndication *ind);
+    // e2sm::kpm::AgentInterface handler functions
+    bool handle(e2sm::kpm::KpmIndication *ind);
 
     void serialize(ResourceType rt,
 		   rapidjson::Writer<rapidjson::StringBuffer>& writer);
@@ -536,6 +542,7 @@ class App
     bool should_stop;
     e2ap::E2AP e2ap;
     e2sm::nexran::NexRANModel *nexran;
+    e2sm::kpm::KpmModel *kpm;
     bool running;
     RestServer server;
     std::mutex mutex;

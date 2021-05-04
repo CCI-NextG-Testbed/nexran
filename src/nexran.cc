@@ -19,7 +19,7 @@ static void rmr_callback(
     xapp::Msg_component payload,void *data)
 {
     ((App *)data)->handle_rmr_message(
-        msg,mtype,subid,payload_len,payload);
+        msg,mtype,msg.Get_subid(),payload_len,payload);
 }
 
 void App::handle_rmr_message(
@@ -50,18 +50,20 @@ void App::handle_rmr_message(
 	return;
     }
 
-    e2ap.handle_message(payload.get(),payload_len,
-			std::string((char *)msg.Get_meid().get()));
+    e2ap.handle_message(payload.get(),payload_len,subid,
+			std::string((char *)msg.Get_meid().get()),
+			std::string((char *)msg.Get_xact().get()));
 
     return;
 }
 
 bool App::send_message(const unsigned char *buf,ssize_t buf_len,
-		       int mtype,long sub_id,const std::string& meid)
+		       int mtype,int subid,const std::string& meid,
+		       const std::string& xid)
 {
     std::unique_ptr<xapp::Message> msg = Alloc_msg(buf_len);
     msg->Set_mtype(mtype);
-    msg->Set_subid(sub_id);
+    msg->Set_subid(subid);
     msg->Set_len(buf_len);
     xapp::Msg_component payload = msg->Get_payload();
     memcpy((char *)payload.get(),(char *)buf,
@@ -69,6 +71,10 @@ bool App::send_message(const unsigned char *buf,ssize_t buf_len,
 	    ? msg->Get_available_size() : buf_len));
     std::shared_ptr<unsigned char> msg_meid((unsigned char *)strdup(meid.c_str()));
     msg->Set_meid(msg_meid);
+    if (!xid.empty()) {
+	std::shared_ptr<unsigned char> msg_xid((unsigned char *)strdup(xid.c_str()));
+	msg->Set_xact(msg_xid);
+    }
     return msg->Send();
 }
 
@@ -122,6 +128,11 @@ bool App::handle(e2ap::ErrorIndication *ind)
 bool App::handle(e2sm::nexran::SliceStatusIndication *ind)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran SliceStatusIndication handler");
+}
+
+bool App::handle(e2sm::kpm::KpmIndication *ind)
+{
+    mdclog_write(MDCLOG_DEBUG,"kpm KpmIndication handler");
 }
 
 void App::response_handler()
@@ -288,6 +299,17 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 	    1,sreq,e2ap::CONTROL_REQUEST_ACK);
 	creq->set_meid(rname);
 	e2ap.send_control_request(creq,rname);
+
+	e2sm::kpm::EventTrigger *trigger = \
+	    new e2sm::kpm::EventTrigger(kpm);
+	std::list<e2ap::Action *> actions;
+	actions.push_back(new e2ap::Action(1,e2ap::ACTION_REPORT,NULL,-1));
+	std::shared_ptr<e2ap::SubscriptionRequest> req = \
+	    std::make_shared<e2ap::SubscriptionRequest>(
+		e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		0,trigger,actions);
+	req->set_meid(rname);
+	e2ap.send_subscription_request(req,rname);
     }
 
     mdclog_write(MDCLOG_DEBUG,"added %s %s",
