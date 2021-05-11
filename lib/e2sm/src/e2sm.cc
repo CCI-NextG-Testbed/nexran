@@ -18,8 +18,6 @@ ssize_t encode(
     if (encoded < 0)
 	return -1;
 
-    ASN_STRUCT_FREE_CONTENTS_ONLY((*td),sptr);
-
     return encoded;
 }
 
