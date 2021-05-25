@@ -1,5 +1,6 @@
 
 #include <cstring>
+#include <sstream>
 
 #include "mdclog/mdclog.h"
 
@@ -13,11 +14,218 @@
 #include "E2SM_KPM_Trigger-ConditionIE-Item.h"
 #include "E2SM_KPM_E2SM-KPM-IndicationHeader.h"
 #include "E2SM_KPM_E2SM-KPM-IndicationMessage.h"
+#include "E2SM_KPM_PM-Containers-List.h"
+#include "E2SM_KPM_PF-Container.h"
+#include "E2SM_KPM_PF-ContainerListItem.h"
+#include "E2SM_KPM_PlmnID-List.h"
+#include "E2SM_KPM_EPC-CUUP-PM-Format.h"
+#include "E2SM_KPM_PerUEReportListItemFormat.h"
+#include "E2SM_KPM_PerUEReportListItem.h"
+#include "E2SM_KPM_PerSliceReportListItemFormat.h"
+#include "E2SM_KPM_CellResourceReportListItem.h"
+#include "E2SM_KPM_ServedPlmnPerCellListItem.h"
+#include "E2SM_KPM_EPC-DU-PM-Container.h"
+#include "E2SM_KPM_PerSliceReportListItemFormat.h"
+#include "E2SM_KPM_PerSliceReportListItem.h"
 
 namespace e2sm
 {
 namespace kpm
 {
+
+long kpm_period_to_ms(KpmPeriod_t period)
+{
+    switch(period) {
+    case MS10: return 10;
+    case MS20: return 20;
+    case MS32: return 32;
+    case MS40: return 40;
+    case MS60: return 60;
+    case MS64: return 64;
+    case MS70: return 70;
+    case MS80: return 80;
+    case MS128: return 128;
+    case MS160: return 160;
+    case MS256: return 256;
+    case MS320: return 320;
+    case MS512: return 512;
+    case MS640: return 640;
+    case MS1024: return 1024;
+    case MS1280: return 1280;
+    case MS2048: return 2048;
+    case MS2560: return 2560;
+    case MS5120: return 5120;
+    case MS10240: return 10240;
+    default: return 0;
+    }
+}
+
+static KpmReport *decode_kpm_indication(
+    E2SM_KPM_E2SM_KPM_IndicationHeader_t& h,
+    E2SM_KPM_E2SM_KPM_IndicationMessage_t& m)
+{
+    if (m.indicationMessage.present
+	!= E2SM_KPM_E2SM_KPM_IndicationMessage__indicationMessage_PR_indicationMessage_Format1)
+	return NULL;
+
+    KpmReport *report = new KpmReport();
+
+    E2SM_KPM_E2SM_KPM_IndicationMessage_Format1_t *imf = \
+	&m.indicationMessage.choice.indicationMessage_Format1;
+
+    for (int i = 0; i < imf->pm_Containers.list.count; ++i) {
+	E2SM_KPM_PM_Containers_List_t *item = \
+	    (E2SM_KPM_PM_Containers_List_t *)imf->pm_Containers.list.array[i];
+	if (!item->performanceContainer)
+	    continue;
+	E2SM_KPM_PF_Container_t *pfc = item->performanceContainer;
+	if (pfc->present == E2SM_KPM_PF_Container_PR_oDU) {
+	    E2SM_KPM_ODU_PF_Container_t *du = &pfc->choice.oDU;
+	    if (du->cellResourceReportList.list.count == 1) {
+		E2SM_KPM_CellResourceReportListItem_t *cell_item = \
+		    (E2SM_KPM_CellResourceReportListItem_t *)du->cellResourceReportList.list.array[0];
+		if (cell_item->dl_TotalofAvailablePRBs)
+		    report->available_dl_prbs = (int)*cell_item->dl_TotalofAvailablePRBs;
+		if (cell_item->ul_TotalofAvailablePRBs)
+		    report->available_ul_prbs = (int)*cell_item->ul_TotalofAvailablePRBs;
+		for (int j = 0; j < cell_item->servedPlmnPerCellList.list.count; ++j) {
+		    E2SM_KPM_ServedPlmnPerCellListItem_t *plmn_cell_item = \
+			(E2SM_KPM_ServedPlmnPerCellListItem_t *)cell_item->servedPlmnPerCellList.list.array[j];
+		    if (!plmn_cell_item->du_PM_EPC)
+			continue;
+		    
+		    if (plmn_cell_item->du_PM_EPC->perUEReportList) {
+			for (int x = 0; x < plmn_cell_item->du_PM_EPC->perUEReportList->list.count; ++x) {
+			    E2SM_KPM_PerUEReportListItem_t *pui = \
+				(E2SM_KPM_PerUEReportListItem_t *)plmn_cell_item->du_PM_EPC->perUEReportList->list.array[x];
+			    if (pui->rnti < 1)
+				continue;
+			    unsigned long dl_prbs = 0,ul_prbs = 0;
+			    asn_INTEGER2ulong(&pui->dl_PRBUsage,&dl_prbs);
+			    asn_INTEGER2ulong(&pui->ul_PRBUsage,&ul_prbs);
+			    if (report->ues.count(pui->rnti) < 1) {
+				report->ues[pui->rnti] = {
+				    0,0,dl_prbs,ul_prbs
+				};
+			    }
+			    else {
+				report->ues[pui->rnti].dl_prbs = dl_prbs;
+				report->ues[pui->rnti].ul_prbs = ul_prbs;
+			    }
+			}
+		    }
+		    if (plmn_cell_item->du_PM_EPC->perSliceReportList) {
+			for (int x = 0; x < plmn_cell_item->du_PM_EPC->perSliceReportList->list.count; ++x) {
+			    E2SM_KPM_PerSliceReportListItem_t *psi = \
+				(E2SM_KPM_PerSliceReportListItem_t *)plmn_cell_item->du_PM_EPC->perSliceReportList->list.array[x];
+			    if (psi->sliceName.size < 1)
+				continue;
+			    std::string slice_name = std::string((char *)psi->sliceName.buf,psi->sliceName.size);
+			    unsigned long dl_prbs = 0,ul_prbs = 0;
+			    asn_INTEGER2ulong(&psi->dl_PRBUsage,&dl_prbs);
+			    asn_INTEGER2ulong(&psi->ul_PRBUsage,&ul_prbs);
+			    if (report->slices.count(slice_name) < 1) {
+				report->slices[slice_name] = {
+				    0,0,dl_prbs,ul_prbs
+				};
+			    }
+			    else {
+				report->slices[slice_name].dl_prbs = dl_prbs;
+				report->slices[slice_name].ul_prbs = ul_prbs;
+			    }
+			}
+		    }
+		}
+	    }
+	}
+	else if (pfc->present == E2SM_KPM_PF_Container_PR_oCU_CP) {
+	    E2SM_KPM_OCUCP_PF_Container_t *cucp = &pfc->choice.oCU_CP;
+	    if (cucp->cu_CP_Resource_Status.numberOfActive_UEs)
+		report->active_ues = *cucp->cu_CP_Resource_Status.numberOfActive_UEs;
+	}
+	else if (pfc->present == E2SM_KPM_PF_Container_PR_oCU_UP) {
+	    E2SM_KPM_OCUUP_PF_Container_t *cuup = &pfc->choice.oCU_UP;
+	    for (int j = 0; j < cuup->pf_ContainerList.list.count; ++j) {
+		E2SM_KPM_PF_ContainerListItem_t *cuup_item = \
+		    (E2SM_KPM_PF_ContainerListItem_t *)cuup->pf_ContainerList.list.array[j];
+
+		for (int k = 0; k < cuup_item->o_CU_UP_PM_Container.plmnList.list.count; ++k) {
+		    E2SM_KPM_PlmnID_List_t *cuup_plmn_item = \
+			(E2SM_KPM_PlmnID_List_t *)cuup_item->o_CU_UP_PM_Container.plmnList.list.array[k];
+		    if (!cuup_plmn_item->cu_UP_PM_EPC)
+			continue;
+
+		    if (cuup_plmn_item->cu_UP_PM_EPC->perUEReportList) {
+			for (int x = 0; x < cuup_plmn_item->cu_UP_PM_EPC->perUEReportList->list.count; ++x) {
+			    E2SM_KPM_PerUEReportListItemFormat_t *pui = \
+				(E2SM_KPM_PerUEReportListItemFormat_t *)cuup_plmn_item->cu_UP_PM_EPC->perUEReportList->list.array[x];
+			    if (pui->rnti < 1)
+				continue;
+			    unsigned long dl_bytes = 0,ul_bytes = 0;
+			    asn_INTEGER2ulong(&pui->bytesDL,&dl_bytes);
+			    asn_INTEGER2ulong(&pui->bytesUL,&ul_bytes);
+			    if (report->ues.count(pui->rnti) < 1) {
+				report->ues[pui->rnti] = {
+				    dl_bytes,ul_bytes,0,0
+				};
+			    }
+			    else {
+				report->ues[pui->rnti].dl_bytes = dl_bytes;
+				report->ues[pui->rnti].ul_bytes = ul_bytes;
+			    }
+			}
+		    }
+		    if (cuup_plmn_item->cu_UP_PM_EPC->perSliceReportList) {
+			for (int x = 0; x < cuup_plmn_item->cu_UP_PM_EPC->perSliceReportList->list.count; ++x) {
+			    E2SM_KPM_PerSliceReportListItemFormat_t *psi = \
+				(E2SM_KPM_PerSliceReportListItemFormat_t *)cuup_plmn_item->cu_UP_PM_EPC->perSliceReportList->list.array[x];
+			    if (psi->sliceName.size < 1)
+				continue;
+			    std::string slice_name = std::string((char *)psi->sliceName.buf,psi->sliceName.size);
+			    unsigned long dl_bytes = 0,ul_bytes = 0;
+			    asn_INTEGER2ulong(&psi->bytesDL,&dl_bytes);
+			    asn_INTEGER2ulong(&psi->bytesUL,&ul_bytes);
+			    if (report->slices.count(slice_name) < 1) {
+				report->slices[slice_name] = {
+				    dl_bytes,ul_bytes,0,0
+				};
+			    }
+			    else {
+				report->slices[slice_name].dl_bytes = dl_bytes;
+				report->slices[slice_name].ul_bytes = ul_bytes;
+			    }
+			}
+		    }
+		}
+	    }
+	}
+    }
+
+    return report;
+}
+
+std::string KpmReport::to_string(char group_delim,char item_delim)
+{
+    std::stringstream ss;
+
+    ss << "KpmReport(period=" << period_ms << " ms)" << group_delim;
+    ss << "available_dl_prbs=" << available_dl_prbs << group_delim;
+    ss << "available_ul_prbs=" << available_ul_prbs << group_delim;
+    for (auto it = ues.begin(); it != ues.end(); ++it)
+	ss << "ue[" << it->first << "]={"
+	   << "dl_bytes=" << it->second.dl_bytes << item_delim
+	   << "ul_bytes=" << it->second.ul_bytes << item_delim
+	   << "dl_prbs=" << it->second.dl_prbs << item_delim
+	   << "ul_prbs=" << it->second.ul_prbs << "}" << group_delim;
+    for (auto it = slices.begin(); it != slices.end(); ++it)
+	ss << "slice[" << it->first << "]={"
+	   << "dl_bytes=" << it->second.dl_bytes << item_delim
+	   << "ul_bytes=" << it->second.ul_bytes << item_delim
+	   << "dl_prbs=" << it->second.dl_prbs << item_delim
+	   << "ul_prbs=" << it->second.ul_prbs << "}" << group_delim;
+
+    return ss.str();
+}
 
 Indication *KpmModel::decode(e2ap::Indication *ind,
 			     unsigned char *header,ssize_t header_len,
@@ -76,15 +284,18 @@ Indication *KpmModel::decode(e2ap::Indication *ind,
     mdclog_write(MDCLOG_DEBUG,"kpm indication report style %ld\n",
 		 m.ric_Style_Type);
 
-    // XXX: meid
-
-    //std::list<SliceStatus *> status_list = decode_slice_status_report(&m.choice.sliceStatusReport);
+    KpmReport *report = decode_kpm_indication(h,m);
+    if (ind->subscription_request
+	&& ind->subscription_request->trigger
+	&& dynamic_cast<e2sm::kpm::EventTrigger *>(ind->subscription_request->trigger)) {
+	report->period_ms = e2sm::kpm::kpm_period_to_ms(
+	    dynamic_cast<e2sm::kpm::EventTrigger *>(ind->subscription_request->trigger)->period);
+    }
 
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_KPM_E2SM_KPM_IndicationHeader,&h);
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_KPM_E2SM_KPM_IndicationMessage,&m);
 
-    //return new SliceStatusReport(this,status_list);
-    return NULL;
+    return new KpmIndication(this,report);
 }
 
 ControlOutcome *KpmModel::decode(e2ap::ControlAck *ack,
@@ -111,9 +322,10 @@ bool EventTrigger::encode()
     td.present = E2SM_KPM_E2SM_KPM_EventTriggerDefinition_PR_eventDefinition_Format1;
     td.choice.eventDefinition_Format1.policyTest_List = \
 	(E2SM_KPM_E2SM_KPM_EventTriggerDefinition_Format1::E2SM_KPM_E2SM_KPM_EventTriggerDefinition_Format1__policyTest_List *) \
-	calloc(1,sizeof(E2SM_KPM_E2SM_KPM_EventTriggerDefinition_Format1::E2SM_KPM_E2SM_KPM_EventTriggerDefinition_Format1__policyTest_List));
-    E2SM_KPM_Trigger_ConditionIE_Item *item = \
-	(E2SM_KPM_Trigger_ConditionIE_Item *)calloc(1,sizeof(E2SM_KPM_Trigger_ConditionIE_Item));
+	calloc(1,sizeof(*td.choice.eventDefinition_Format1.policyTest_List));
+
+    E2SM_KPM_Trigger_ConditionIE_Item_t *item = \
+	(E2SM_KPM_Trigger_ConditionIE_Item *)calloc(1,sizeof(*item));
     item->report_Period_IE = (enum E2SM_KPM_RT_Period_IE)period;
     ASN_SEQUENCE_ADD(&td.choice.eventDefinition_Format1.policyTest_List->list,item);
 

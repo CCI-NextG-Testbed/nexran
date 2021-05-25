@@ -329,7 +329,8 @@ class Indication : public Message
     Indication()
 	: requestor_id(-1),instance_id(-1),function_id(-1),
 	  action_id(-1),serial_number(-1),type(-1),
-	  call_process_id(NULL),call_process_id_len(-1),Message() {};
+	  call_process_id(NULL),call_process_id_len(-1),
+	  subscription_request(NULL),Message() {};
     Indication(
         long requestor_id_,long instance_id_,RanFunctionId function_id_,
 	long action_id_,long serial_number_,long type_,
@@ -338,8 +339,8 @@ class Indication : public Message
 	  function_id(function_id_),action_id(action_id_),
 	  serial_number(serial_number_),type(type_),
 	  call_process_id(call_process_id_),call_process_id_len(call_process_id_len_),
-	  Message() {};
-    virtual ~Indication() = default;
+	  subscription_request(NULL),Message() {};
+    virtual ~Indication();
 
     virtual bool encode();
 
@@ -352,6 +353,7 @@ class Indication : public Message
     unsigned char *call_process_id;
     size_t call_process_id_len;
     e2sm::Indication *model;
+    std::shared_ptr<SubscriptionRequest> subscription_request;
 };
 
 class ErrorIndication : public Message

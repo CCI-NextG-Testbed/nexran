@@ -60,7 +60,9 @@ Slice *Slice::create(rapidjson::Document& d,AppError **ae)
 	    || !obj["allocation_policy"].HasMember("share")
 	    || !obj["allocation_policy"]["share"].IsInt()
 	    || obj["allocation_policy"]["share"].GetInt() < 0
-	    || obj["allocation_policy"]["share"].GetInt() > 1024) {
+	    || obj["allocation_policy"]["share"].GetInt() > 1024
+	    || (obj["allocation_policy"].HasMember("auto_equalize")
+		&& !obj["allocation_policy"]["auto_equalize"].IsBool())) {
 	    if (ae) {
 		if (!*ae)
 		    *ae = new AppError(400);
@@ -69,8 +71,11 @@ Slice *Slice::create(rapidjson::Document& d,AppError **ae)
 	    return NULL;
 	}
 
+	bool auto_equalize = false;
+	if (obj["allocation_policy"].HasMember("auto_equalize"))
+	    auto_equalize = obj["allocation_policy"]["auto_equalize"].GetBool();
 	allocation_policy = new ProportionalAllocationPolicy(
-	    obj["allocation_policy"]["share"].GetInt());
+	    obj["allocation_policy"]["share"].GetInt(),auto_equalize);
     }
     if (allocation_policy)
 	return new Slice(std::string(obj["name"].GetString()),

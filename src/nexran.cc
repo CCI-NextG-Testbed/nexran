@@ -117,7 +117,18 @@ bool App::handle(e2ap::ControlFailure *control)
 
 bool App::handle(e2ap::Indication *ind)
 {
+    bool retval = false;
+
     mdclog_write(MDCLOG_DEBUG,"nexran Indication handler");
+    if (ind->model) {
+	e2sm::kpm::KpmIndication *kind = \
+	    dynamic_cast<e2sm::kpm::KpmIndication *>(ind->model);
+	if (kind)
+	    retval = handle(kind);
+    }
+
+    delete ind;
+    return retval;
 }
 
 bool App::handle(e2ap::ErrorIndication *ind)
@@ -130,9 +141,199 @@ bool App::handle(e2sm::nexran::SliceStatusIndication *ind)
     mdclog_write(MDCLOG_DEBUG,"nexran SliceStatusIndication handler");
 }
 
-bool App::handle(e2sm::kpm::KpmIndication *ind)
+bool App::handle(e2sm::kpm::KpmIndication *kind)
 {
-    mdclog_write(MDCLOG_DEBUG,"kpm KpmIndication handler");
+    mdclog_write(MDCLOG_INFO,"KpmIndication: %s",
+		 kind->report->to_string('\n',',').c_str());
+
+    // If we don't have BW reports for all slices, do not modify proportions?
+    // Add up all slice dl_bytes, get proportions
+    // map those to share proportions
+    // figure out the delta for each slice to equalize
+    // 10, 5, 10 // 512, 512, 512
+    // new target: (25/3)=8.333... for each
+    // 25/3-10=-1.667, 25/3-5=3.333, 25/3-10=-1.667
+    // -1.667/10 == -16.67% (apply that to current share, so remove 16.67%
+    // of its share, and so on)
+    // new shares: 512+(512*-.1667) = 426
+    //             512+(512*.6667) = 853
+    //             512+(512*-.1667) = 426
+    // If all share factors are within 5%, make no changes.
+    
+    // ugh, this is also assuming a single nodeb, because our slice
+    // share policy is global, not per nodeb
+    
+    // but -- we could also keep a per-nodeb specialization :-D
+    // maybe hide it from user, who knows
+
+    e2sm::kpm::KpmReport *report = kind->report;
+    if (report->slices.size() == 0) {
+	mdclog_write(MDCLOG_DEBUG,"no slices in KPM report; not autoequalizing");
+	if (mdclog_level_get() == MDCLOG_DEBUG) {
+	    mutex.lock();
+	    std::stringstream ss;
+	    for (auto it = db[ResourceType::SliceResource].begin();
+		 it != db[ResourceType::SliceResource].end();
+		 ++it) {
+		Slice *slice = (Slice *)it->second;
+		if (dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy()) == NULL)
+		    continue;
+		ProportionalAllocationPolicy *policy = \
+		    dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+		if (!policy->isAutoEqualized())
+		    continue;
+		ss << it->first << "[share=" << policy->getShare() << "]" << std::endl;
+	    }
+	    mutex.unlock();
+	    mdclog_write(MDCLOG_DEBUG,"current shares: %s",ss.str().c_str());
+	}
+	return true;
+    }
+
+    // Have to lock at this point; we're going to iterate over
+    // and possibly adjust the slice proportions.
+    mutex.lock();
+
+    // Save the share modification factors.
+    std::map<std::string,float> new_share_factors;
+    std::map<std::string,Slice *> slices;
+    std::map<std::string,ProportionalAllocationPolicy *> policies;
+
+    uint64_t slices_total = 0;
+    uint64_t slices_prb_total = 0;
+    for (auto it = report->slices.begin(); it != report->slices.end(); ++it) {
+	std::string slice_name = it->first;
+	// If this is not a slice we know of, ignore.
+	if (db[ResourceType::SliceResource].count(slice_name) == 0)
+	    continue;
+	// If this is not an autoequalized slice, ignore.
+	Slice *slice = (Slice *)db[ResourceType::SliceResource][slice_name];
+	if (dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy()) == NULL)
+	    continue;
+	ProportionalAllocationPolicy *policy =				\
+	    dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+	if (!policy->isAutoEqualized())
+	    continue;
+
+	slices_total += it->second.dl_bytes;
+	slices_prb_total += it->second.dl_prbs;
+	// placeholder until second iteration
+	new_share_factors[slice_name] = 1.0f;
+	slices[slice_name] = slice;
+	policies[slice_name] = policy;
+    }
+
+    bool all_above_threshold = false;
+    int num_slices = new_share_factors.size();
+    uint64_t available_prbs_per_slice = (report->period_ms * 2 * report->available_dl_prbs) / num_slices;
+    uint64_t prb_threshold = (uint64_t)(0.15f * available_prbs_per_slice);
+
+    if (available_prbs_per_slice > 0) {
+	any_above_threshold = false;
+	// Check PRB utilization.  If no slice has utilized at least 15% of an
+	// even PRB allocation, do nothing.
+	for (auto it = new_share_factors.begin(); it != new_share_factors.end(); ++it) {
+	    std::string slice_name = it->first;
+	    uint64_t dl_prbs = report->slices[slice_name].dl_prbs;
+
+	    if (dl_prbs > prb_threshold) {
+		any_above_threshold = true;
+		break;
+	    }
+	}
+	if (any_above_threshold)
+	    mdclog_write(MDCLOG_INFO,"PRB utilization threshold (%lu/%lu) reached; checking for new share factors",
+			 prb_threshold,available_prbs_per_slice);
+	else {
+	    mdclog_write(MDCLOG_DEBUG,"PRB utilization threshold (%lu/%lu) not reached; not updating slice proportional shares",
+			 prb_threshold,available_prbs_per_slice);
+	    mutex.unlock();
+	    return true;
+	}
+    }
+	
+
+    // Create the new share factors.
+    any_above_threshold = false;
+    for (auto it = new_share_factors.begin(); it != new_share_factors.end(); ++it) {
+	std::string slice_name = it->first;
+	uint64_t dl_bytes = report->slices[slice_name].dl_bytes;
+	new_share_factors[slice_name] = ((float)slices_total / num_slices - dl_bytes) / dl_bytes;
+	if (new_share_factors[slice_name] > 0.1f || new_share_factors[slice_name] < -0.1f)
+	    any_above_threshold = true;
+	mdclog_write(MDCLOG_DEBUG,"new proportional share factor (%s): %f",
+		     slice_name.c_str(),it->second);
+    }
+
+    if (any_above_threshold)
+	mdclog_write(MDCLOG_INFO,"updating slice proportional shares");
+    else {
+	mdclog_write(MDCLOG_DEBUG,"not updating slice proportional shares; nothing above threshold");
+	if (mdclog_level_get() == MDCLOG_DEBUG) {
+	    std::stringstream ss;
+	    for (auto it = db[ResourceType::SliceResource].begin();
+		 it != db[ResourceType::SliceResource].end();
+		 ++it) {
+		Slice *slice = (Slice *)it->second;
+		if (dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy()) == NULL)
+		    continue;
+		ProportionalAllocationPolicy *policy = \
+		    dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+		if (!policy->isAutoEqualized())
+		    continue;
+		ss << it->first << "[share=" << policy->getShare() << "]" << std::endl;
+	    }
+	    mdclog_write(MDCLOG_DEBUG,"current shares: %s",ss.str().c_str());
+	}
+	mutex.unlock();
+	return true;
+    }
+
+    for (auto it = new_share_factors.begin(); it != new_share_factors.end(); ++it) {
+	std::string slice_name = it->first;
+	// Update the policies and push out control messages to bound
+	// nodebs.
+	Slice *slice = slices[slice_name];
+	ProportionalAllocationPolicy *policy = policies[slice_name];
+	int cshare = policy->getShare();
+	int nshare = std::min((int)(cshare + (cshare * it->second)),1024);
+	if (nshare < 1 || nshare < 128)
+	    //nshare = 1;
+	    nshare = 128;
+	policy->setShare(nshare);
+	if (cshare == nshare) {
+	    mdclog_write(MDCLOG_INFO,"slice '%s' share unchanged: %d",
+			 slice_name.c_str(),nshare);
+	    continue;
+	}
+	mdclog_write(MDCLOG_INFO,"slice '%s' share: %d -> %d",
+		     slice_name.c_str(),cshare,nshare);
+	e2sm::nexran::ProportionalAllocationPolicy *npolicy = \
+	    new e2sm::nexran::ProportionalAllocationPolicy(nshare);
+	e2sm::nexran::SliceConfig *sc = new e2sm::nexran::SliceConfig(slice_name,npolicy);
+	e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(nexran,sc);
+	sreq->encode();
+
+	for (auto it2 = db[ResourceType::NodeBResource].begin();
+	     it2 != db[ResourceType::NodeBResource].end();
+	     ++it2) {
+	    NodeB *nodeb = (NodeB *)it2->second;
+
+	    if (!nodeb->is_slice_bound(slice_name))
+		continue;
+
+	    // Each request needs a different RequestId, so we have to
+	    // re-encode each time.
+	    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
+                e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		1,sreq,e2ap::CONTROL_REQUEST_ACK);
+	    creq->set_meid(nodeb->getName());
+	    e2ap.send_control_request(creq,nodeb->getName());
+	}
+    }
+
+    mutex.unlock();
+    return true;
 }
 
 void App::response_handler()

@@ -14,29 +14,81 @@ namespace e2sm
 namespace kpm
 {
 
-class KpmIndication : e2sm::Indication
+typedef struct entity_metrics
+{
+  uint64_t dl_bytes;
+  uint64_t ul_bytes;
+  uint64_t dl_prbs;
+  uint64_t ul_prbs;
+} entity_metrics_t;
+
+class KpmReport
+{
+ public:
+    KpmReport()
+	: period_ms(0),available_dl_prbs(0),available_ul_prbs(0),active_ues(0),
+	  ues(),slices() {};
+    virtual ~KpmReport() = default;
+    std::string to_string(char group_delim = ' ',char item_delim = ',');
+
+    long period_ms;
+    int available_dl_prbs;
+    int available_ul_prbs;
+    long active_ues;
+    std::map<long,entity_metrics_t> ues;
+    std::map<std::string,entity_metrics_t> slices;
+};
+
+class KpmIndication : public e2sm::Indication
 {
  public:
     KpmIndication(e2sm::Model *model_)
 	: e2sm::Indication(model_) {};
-    virtual ~KpmIndication() = default;
+    KpmIndication(e2sm::Model *model_,KpmReport *report_)
+	: report(report_),e2sm::Indication(model_) {};
+    virtual ~KpmIndication() { delete report; };
+    virtual bool encode() { return false; };
 
-    //xxx
+    KpmReport *report;
 };
+
+typedef enum KpmPeriod {
+    MS10	= 0,
+    MS20	= 1,
+    MS32	= 2,
+    MS40	= 3,
+    MS60	= 4,
+    MS64	= 5,
+    MS70	= 6,
+    MS80	= 7,
+    MS128	= 8,
+    MS160	= 9,
+    MS256	= 10,
+    MS320	= 11,
+    MS512	= 12,
+    MS640	= 13,
+    MS1024	= 14,
+    MS1280	= 15,
+    MS2048	= 16,
+    MS2560	= 17,
+    MS5120	= 18,
+    MS10240	= 19
+} KpmPeriod_t;
+
+long kpm_period_to_ms(KpmPeriod_t period);
 
 class EventTrigger : public e2sm::EventTrigger
 {
  public:
-    EventTrigger(e2sm::Model *model_,long period_)
+    EventTrigger(e2sm::Model *model_,KpmPeriod_t period_)
 	: period(period_),e2sm::EventTrigger(model_) {};
     EventTrigger(e2sm::Model *model_)
-	: period(14),e2sm::EventTrigger(model_) {};
+	: period(KpmPeriod::MS5120),e2sm::EventTrigger(model_) {};
     virtual ~EventTrigger() = default;
 
     virtual bool encode();
 
- protected:
-    long period;
+    KpmPeriod_t period;
 };
 
 class AgentInterface

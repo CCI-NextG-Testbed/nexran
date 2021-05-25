@@ -234,11 +234,19 @@ class AllocationPolicy {
 
 class ProportionalAllocationPolicy : public AllocationPolicy {
  public:
-    ProportionalAllocationPolicy(int share_) : share(share_) {};
+    ProportionalAllocationPolicy(int share_,bool auto_equalize_ = false)
+	: share(share_),auto_equalize(auto_equalize_) {};
     ~ProportionalAllocationPolicy() = default;
 
-    const char *getName() { return name; }
-    int getShare() { return share; }
+    const char *getName() { return name; };
+    int getShare() { return share; };
+    bool setShare(int share_) {
+	if (share_ < 0 || share_ > 1024)
+	    return false;
+	share = share_;
+	return true;
+    };
+    bool isAutoEqualized() { return auto_equalize; }
     const AllocationPolicy::Type getType() { return AllocationPolicy::Type::Proportional; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
     {
@@ -247,6 +255,8 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
 	writer.String("proportional");
 	writer.String("share");
 	writer.Int(share);
+	writer.String("auto_equalize");
+	writer.Bool(auto_equalize);
 	writer.EndObject();
     };
     bool update(const rapidjson::Value& obj,AppError **ae);
@@ -255,6 +265,7 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
     static constexpr const char *name = "proportional";
 
     int share;
+    bool auto_equalize;
 };
 
 class Slice : public Resource<Slice> {
@@ -268,7 +279,7 @@ class Slice : public Resource<Slice> {
 
     Slice(const std::string& name_)
 	: name(name_),
-	  allocation_policy(new ProportionalAllocationPolicy(1024)) {};
+	  allocation_policy(new ProportionalAllocationPolicy(512)) {};
     Slice(const std::string& name_,AllocationPolicy *allocation_policy_)
 	: name(name_),
 	  allocation_policy(allocation_policy_) {};

@@ -366,6 +366,7 @@ static Indication *decode_indication(E2AP *e2ap,E2AP_E2AP_PDU_t *pdu,int subid)
 	delete ret;
 	return NULL;
     }
+    ret->subscription_request = req;
 
     if (req->trigger) {
 	e2sm::Model *model = req->trigger->get_model();
@@ -379,7 +380,6 @@ static Indication *decode_indication(E2AP *e2ap,E2AP_E2AP_PDU_t *pdu,int subid)
 	}
 	ret->model = sm_ind;
     }
-
     return ret;
 }
 
@@ -1110,6 +1110,14 @@ bool ControlAck::encode()
 bool ControlFailure::encode()
 {
     return false;
+}
+
+Indication::~Indication()
+{
+    if (call_process_id)
+	free(call_process_id);
+    if (model)
+	delete model;
 }
 
 bool Indication::encode()
