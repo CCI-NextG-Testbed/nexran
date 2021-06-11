@@ -1,6 +1,7 @@
 
 #include <cstring>
 #include <sstream>
+#include <ctime>
 
 #include "mdclog/mdclog.h"
 
@@ -32,6 +33,34 @@ namespace e2sm
 {
 namespace kpm
 {
+
+void MetricsIndex::add(entity_metrics_t m)
+{
+    queue.push(m);
+    totals.dl_bytes += m.dl_bytes;
+    totals.ul_bytes += m.ul_bytes;
+    totals.dl_prbs += m.dl_prbs;
+    totals.ul_prbs += m.ul_prbs;
+    flush();
+}
+
+void MetricsIndex::flush()
+{
+    time_t now = std::time(nullptr);
+
+    while (queue.size() > 0) {
+	entity_metrics_t& m = queue.front();
+	if (m.time < (now - period)) {
+	    totals.dl_bytes -= m.dl_bytes;
+	    totals.ul_bytes -= m.ul_bytes;
+	    totals.dl_prbs -= m.dl_prbs;
+	    totals.ul_prbs -= m.ul_prbs;
+	    queue.pop();
+	}
+	else
+	    break;
+    }
+}
 
 long kpm_period_to_ms(KpmPeriod_t period)
 {
@@ -69,6 +98,7 @@ static KpmReport *decode_kpm_indication(
 	return NULL;
 
     KpmReport *report = new KpmReport();
+    time_t now = std::time(nullptr);
 
     E2SM_KPM_E2SM_KPM_IndicationMessage_Format1_t *imf = \
 	&m.indicationMessage.choice.indicationMessage_Format1;
@@ -105,7 +135,7 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&pui->ul_PRBUsage,&ul_prbs);
 			    if (report->ues.count(pui->rnti) < 1) {
 				report->ues[pui->rnti] = {
-				    0,0,dl_prbs,ul_prbs
+				    0,0,dl_prbs,ul_prbs,now
 				};
 			    }
 			    else {
@@ -126,7 +156,7 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&psi->ul_PRBUsage,&ul_prbs);
 			    if (report->slices.count(slice_name) < 1) {
 				report->slices[slice_name] = {
-				    0,0,dl_prbs,ul_prbs
+				    0,0,dl_prbs,ul_prbs,now
 				};
 			    }
 			    else {
@@ -166,7 +196,7 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&pui->bytesUL,&ul_bytes);
 			    if (report->ues.count(pui->rnti) < 1) {
 				report->ues[pui->rnti] = {
-				    dl_bytes,ul_bytes,0,0
+				    dl_bytes,ul_bytes,0,0,now
 				};
 			    }
 			    else {
@@ -187,7 +217,7 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&psi->bytesUL,&ul_bytes);
 			    if (report->slices.count(slice_name) < 1) {
 				report->slices[slice_name] = {
-				    dl_bytes,ul_bytes,0,0
+				    dl_bytes,ul_bytes,0,0,now
 				};
 			    }
 			    else {

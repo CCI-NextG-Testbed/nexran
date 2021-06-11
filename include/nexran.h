@@ -234,8 +234,14 @@ class AllocationPolicy {
 
 class ProportionalAllocationPolicy : public AllocationPolicy {
  public:
-    ProportionalAllocationPolicy(int share_,bool auto_equalize_ = false)
-	: share(share_),auto_equalize(auto_equalize_) {};
+    ProportionalAllocationPolicy(int share_,bool auto_equalize_ = false,
+				 bool throttle_ = false,int throttle_threshold_ = -1,
+				 int throttle_period_ = 1800,int throttle_share_ = 128)
+	: share(share_),auto_equalize(auto_equalize_),
+	  throttle(throttle_),throttle_threshold(throttle_threshold_),
+	  throttle_period(throttle_period_),throttle_share(throttle_share_),
+	  is_throttling(false),throttle_end(0),throttle_saved_share(-1),
+	  metrics(throttle_period_) {};
     ~ProportionalAllocationPolicy() = default;
 
     const char *getName() { return name; };
@@ -247,6 +253,11 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
 	return true;
     };
     bool isAutoEqualized() { return auto_equalize; }
+    bool isThrottled() { return throttle; };
+    bool isThrottling() { return is_throttling; };
+    int maybeEndThrottling();
+    int maybeStartThrottling();
+    e2sm::kpm::MetricsIndex& getMetrics() { return metrics; };
     const AllocationPolicy::Type getType() { return AllocationPolicy::Type::Proportional; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
     {
@@ -257,6 +268,14 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
 	writer.Int(share);
 	writer.String("auto_equalize");
 	writer.Bool(auto_equalize);
+	writer.String("throttle");
+	writer.Bool(throttle);
+	writer.String("throttle_threshold");
+	writer.Int(throttle_threshold);
+	writer.String("throttle_period");
+	writer.Int(throttle_period);
+	writer.String("throttle_share");
+	writer.Int(throttle_share);
 	writer.EndObject();
     };
     bool update(const rapidjson::Value& obj,AppError **ae);
@@ -266,6 +285,15 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
 
     int share;
     bool auto_equalize;
+    bool throttle;
+    int throttle_threshold;
+    int throttle_period;
+    int throttle_share;
+
+    bool is_throttling;
+    time_t throttle_end;
+    int throttle_saved_share;
+    e2sm::kpm::MetricsIndex metrics;
 };
 
 class Slice : public Resource<Slice> {

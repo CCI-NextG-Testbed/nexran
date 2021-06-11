@@ -3,8 +3,10 @@
 
 #include <list>
 #include <map>
+#include <queue>
 #include <string>
 #include <cstdint>
+#include <ctime>
 
 #include "e2ap.h"
 #include "e2sm.h"
@@ -20,7 +22,27 @@ typedef struct entity_metrics
   uint64_t ul_bytes;
   uint64_t dl_prbs;
   uint64_t ul_prbs;
+  time_t time;
 } entity_metrics_t;
+
+class MetricsIndex
+{
+ public:
+    MetricsIndex(int period_)
+	: period(period_),queue() {};
+
+    void add(entity_metrics_t m);
+    entity_metrics_t& get_totals() { return totals; };
+    uint64_t get_total_bytes() { return totals.dl_bytes + totals.ul_bytes; };
+    int size() { return queue.size(); };
+    void flush();
+    void reset(int period_) { period = period_; flush(); };
+
+ private:
+    int period;
+    std::queue<entity_metrics_t> queue;
+    entity_metrics_t totals = { 0,0,0,0 };
+};
 
 class KpmReport
 {

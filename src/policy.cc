@@ -7,6 +7,41 @@ std::map<AllocationPolicy::Type,const char *> AllocationPolicy::type_to_string =
     { Proportional, "proportional" },
 };
 
+int ProportionalAllocationPolicy::maybeEndThrottling()
+{
+    if (!isThrottling())
+	return -1;
+    else if (throttle && std::time(nullptr) < throttle_end)
+	return -1;
+
+    int ret = throttle_saved_share;
+    is_throttling = false;
+    throttle_end = 0;
+    throttle_saved_share = -1;
+
+    // Caller must call setShare() on the new value.
+    return ret;
+    
+}
+
+int ProportionalAllocationPolicy::maybeStartThrottling()
+{
+    if (!throttle)
+	return -1;
+    else if (isThrottling())
+	return -1;
+    else if (metrics.get_total_bytes() < throttle_threshold)
+	return -1;
+
+    throttle_saved_share = share;
+    is_throttling = true;
+    throttle_end = std::time(nullptr) + throttle_period;
+
+    // Caller must call setShare() on the new value.
+    return throttle_share;
+    
+}
+
 bool ProportionalAllocationPolicy::update(const rapidjson::Value& obj,AppError **ae)
 {
     if (!obj.IsObject()) {
@@ -33,7 +68,23 @@ bool ProportionalAllocationPolicy::update(const rapidjson::Value& obj,AppError *
 	return NULL;
     }
 
+    if ((obj.HasMember("auto_equalize")
+	 && !obj["auto_equalize"].IsBool())
+	|| (obj.HasMember("throttle")
+	    && !obj["throttle"].IsBool())) {
+	if (ae) {
+	    if (!*ae)
+		*ae = new AppError(400);
+	    (*ae)->add(std::string("malformed allocation_policy property"));
+	}
+	return NULL;
+    }
+
     share = obj["share"].GetInt();
+    if (obj.HasMember("auto_equalize"))
+	auto_equalize = obj["auto_equalize"].GetBool();
+    if (obj.HasMember("throttle"))
+	throttle = obj["throttle"].GetBool();
 
     return true;
 }
