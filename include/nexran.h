@@ -23,6 +23,7 @@
 #include "e2sm.h"
 #include "e2sm_nexran.h"
 #include "e2sm_kpm.h"
+#include "e2sm_zylinium.h"
 
 namespace nexran {
 
@@ -374,7 +375,8 @@ class NodeB : public Resource<NodeB> {
 	  int32_t id_,uint8_t id_len_)
 	: type(type_),mcc(std::string(mcc_)),mnc(std::string(mnc_)),
 	  id(id_),id_len(id_len_),connected(false),total_prbs(-1),
-	  name(build_name(type_,mcc_,mnc_,id_,id_len_)) {};
+	  name(build_name(type_,mcc_,mnc_,id_,id_len_)),
+	  dl_rbg_mask("0x0"),ul_prb_mask("0x0") {};
     virtual ~NodeB() = default;
 
     std::string& getName() { return *name; }
@@ -402,6 +404,25 @@ class NodeB : public Resource<NodeB> {
 	return slices;
     };
 
+    void set_dl_rbg_mask(std::string mask) {
+	if (mask.size() > 0)
+	    dl_rbg_mask = mask;
+	else
+	    dl_rbg_mask = std::string("0x0");
+    };
+    void set_ul_prb_mask(std::string mask) {
+	if (mask.size() > 0)
+	    ul_prb_mask = mask;
+	else
+	    ul_prb_mask = std::string("0x0");
+    };
+    std::string& get_dl_rbg_mask() {
+	return dl_rbg_mask;
+    };
+    std::string& get_ul_prb_mask() {
+	return ul_prb_mask;
+    };
+
  private:
     static const char *type_string_map[NodeB::Type::__END__];
 
@@ -414,6 +435,8 @@ class NodeB : public Resource<NodeB> {
     bool connected;
     int total_prbs;
     std::map<std::string,Slice *> slices;
+    std::string dl_rbg_mask;
+    std::string ul_prb_mask;
 };
 
 class SliceMetrics {
@@ -505,7 +528,8 @@ class App
     : public xapp::Messenger,
       public e2ap::AgentInterface,
       public e2sm::nexran::AgentInterface,
-      public e2sm::kpm::AgentInterface
+      public e2sm::kpm::AgentInterface,
+      public e2sm::zylinium::AgentInterface
 {
  public:
     typedef enum {
@@ -519,7 +543,8 @@ class App
 	  rmr_thread(NULL),response_thread(NULL),
 	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
 	  nexran(new e2sm::nexran::NexRANModel(this)),
-	  kpm(new e2sm::kpm::KpmModel(this)) { };
+	  kpm(new e2sm::kpm::KpmModel(this)),
+	  zylinium(new e2sm::zylinium::ZyliniumModel(this)) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
@@ -548,6 +573,8 @@ class App
     bool handle(e2sm::nexran::SliceStatusIndication *ind);
     // e2sm::kpm::AgentInterface handler functions
     bool handle(e2sm::kpm::KpmIndication *ind);
+    // e2sm::zylinium::AgentInterface handler functions
+    bool handle(e2sm::zylinium::MaskStatusIndication *ind);
 
     void serialize(ResourceType rt,
 		   rapidjson::Writer<rapidjson::StringBuffer>& writer);
@@ -582,6 +609,7 @@ class App
     e2ap::E2AP e2ap;
     e2sm::nexran::NexRANModel *nexran;
     e2sm::kpm::KpmModel *kpm;
+    e2sm::zylinium::ZyliniumModel *zylinium;
     bool running;
     RestServer server;
     std::mutex mutex;

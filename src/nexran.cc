@@ -11,6 +11,7 @@
 #include "e2sm.h"
 #include "e2sm_nexran.h"
 #include "e2sm_kpm.h"
+#include "e2sm_zylinium.h"
 
 namespace nexran {
 
@@ -422,6 +423,11 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
     return true;
 }
 
+bool App::handle(e2sm::zylinium::MaskStatusIndication *ind)
+{
+    mdclog_write(MDCLOG_DEBUG,"zylinium MaskStatusIndication handler");
+}
+
 void App::response_handler()
 {
     std::unique_lock<std::mutex> lock(mutex);
@@ -566,6 +572,8 @@ bool App::add(ResourceType rt,AbstractResource *resource,
     mutex.unlock();
 
     if (rt == App::ResourceType::NodeBResource) {
+	NodeB *nodeb = (NodeB *)resource;
+
 	/*
 	e2sm::nexran::EventTrigger *trigger = \
 	    new e2sm::nexran::EventTrigger(nexran,1000);
@@ -597,6 +605,16 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 		0,trigger,actions);
 	req->set_meid(rname);
 	e2ap.send_subscription_request(req,rname);
+
+	e2sm::zylinium::BlockedMask *mask = new e2sm::zylinium::BlockedMask(
+	    nodeb->get_dl_rbg_mask(),nodeb->get_ul_prb_mask());
+	e2sm::zylinium::MaskConfigRequest *mreq = \
+	    new e2sm::zylinium::MaskConfigRequest(nexran,mask);
+	creq = std::make_shared<e2ap::ControlRequest>(
+            e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+	    1,mreq,e2ap::CONTROL_REQUEST_ACK);
+	creq->set_meid(rname);
+	e2ap.send_control_request(creq,rname);
     }
 
     mdclog_write(MDCLOG_DEBUG,"added %s %s",
@@ -735,7 +753,21 @@ bool App::update(ResourceType rt,std::string& rname,
 	return false;
     }
 
-    if (rt == App::ResourceType::SliceResource) {
+    if (rt == App::ResourceType::NodeBResource) {
+	NodeB *nodeb = (NodeB *)db[App::ResourceType::NodeBResource][rname];
+
+	e2sm::zylinium::BlockedMask *mask = new e2sm::zylinium::BlockedMask(
+	    nodeb->get_dl_rbg_mask(),nodeb->get_ul_prb_mask());
+	e2sm::zylinium::MaskConfigRequest *mreq = \
+	    new e2sm::zylinium::MaskConfigRequest(nexran,mask);
+	std::shared_ptr<e2ap::ControlRequest> creq = \
+	    std::make_shared<e2ap::ControlRequest>(
+            e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+	    1,mreq,e2ap::CONTROL_REQUEST_ACK);
+	creq->set_meid(rname);
+	e2ap.send_control_request(creq,rname);
+    }
+    else if (rt == App::ResourceType::SliceResource) {
 	Slice *slice = (Slice *)db[App::ResourceType::SliceResource][rname];
 
 	ProportionalAllocationPolicy *policy = dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
