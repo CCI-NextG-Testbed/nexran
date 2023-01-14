@@ -18,11 +18,24 @@ namespace kpm
 
 typedef struct entity_metrics
 {
+  time_t time;
   uint64_t dl_bytes;
   uint64_t ul_bytes;
   uint64_t dl_prbs;
   uint64_t ul_prbs;
-  time_t time;
+  int64_t  tx_pkts;
+  int64_t  tx_errors;
+  int64_t  tx_brate;
+  int64_t  rx_pkts;
+  int64_t  rx_errors;
+  int64_t  rx_brate;
+  double   dl_cqi;
+  double   dl_ri;
+  double   dl_pmi;
+  double   ul_phr;
+  double   ul_sinr;
+  double   ul_mcs;
+  int64_t  ul_samples;
 } entity_metrics_t;
 
 class MetricsIndex
@@ -41,7 +54,7 @@ class MetricsIndex
  private:
     int period;
     std::queue<entity_metrics_t> queue;
-    entity_metrics_t totals = { 0,0,0,0 };
+    entity_metrics_t totals = { };
 };
 
 class KpmReport
