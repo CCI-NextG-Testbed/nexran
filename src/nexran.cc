@@ -705,6 +705,8 @@ bool App::del(ResourceType rt,std::string& rname,
 	    creq->set_meid(nodeb->getName());
 	    e2ap.send_control_request(creq,nodeb->getName());
 	}
+
+	e2ap.delete_all_subscriptions(rname);
     }
 
     delete db[rt][rname];
