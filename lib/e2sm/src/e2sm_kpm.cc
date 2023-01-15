@@ -186,8 +186,17 @@ static KpmReport *decode_kpm_indication(
 			    }
 			    report->slices[slice_name].tx_pkts = psi->tx_pkts;
 			    report->slices[slice_name].tx_errors = psi->tx_errors;
+			    report->slices[slice_name].tx_brate = psi->tx_brate;
 			    report->slices[slice_name].rx_pkts = psi->rx_pkts;
 			    report->slices[slice_name].rx_errors = psi->rx_errors;
+			    report->slices[slice_name].rx_brate = psi->rx_brate;
+			    report->slices[slice_name].dl_cqi = psi->dl_cqi;
+			    report->slices[slice_name].dl_ri = psi->dl_ri;
+			    report->slices[slice_name].dl_pmi = psi->dl_pmi;
+			    report->slices[slice_name].ul_phr = psi->ul_phr;
+			    report->slices[slice_name].ul_sinr = psi->ul_sinr;
+			    report->slices[slice_name].ul_mcs = psi->ul_mcs;
+			    report->slices[slice_name].ul_samples = psi->ul_samples;
 			}
 		    }
 		}
@@ -291,11 +300,20 @@ std::string KpmReport::to_string(char group_delim,char item_delim)
 	   << "dl_bytes=" << it->second.dl_bytes << item_delim
 	   << "ul_bytes=" << it->second.ul_bytes << item_delim
 	   << "dl_prbs=" << it->second.dl_prbs << item_delim
-	   << "ul_prbs=" << it->second.ul_prbs
+	   << "ul_prbs=" << it->second.ul_prbs << item_delim
 	   << "tx_pkts=" << it->second.tx_pkts << item_delim
 	   << "tx_errors=" << it->second.tx_errors << item_delim
+	   << "tx_brate=" << it->second.tx_brate << item_delim
 	   << "rx_pkts=" << it->second.rx_pkts << item_delim
-	   << "rx_errors=" << it->second.rx_errors
+	   << "rx_errors=" << it->second.rx_errors << item_delim
+	   << "rx_brate=" << it->second.rx_brate << item_delim
+	   << "dl_cqi=" << it->second.dl_cqi << item_delim
+	   << "dl_ri=" << it->second.dl_ri << item_delim
+	   << "dl_pmi=" << it->second.dl_pmi << item_delim
+	   << "ul_phr=" << it->second.ul_phr << item_delim
+	   << "ul_sinr=" << it->second.ul_sinr << item_delim
+	   << "ul_mcs=" << it->second.ul_mcs << item_delim
+	   << "ul_samples=" << it->second.ul_samples << item_delim
 	   << "}" << group_delim;
 
     return ss.str();
