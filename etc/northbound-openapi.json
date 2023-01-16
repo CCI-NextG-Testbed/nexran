@@ -28,6 +28,16 @@
                 },
                 "type": "object"
             },
+            "AppConfig": {
+                "properties": {
+                    "kpm_interval_index": {
+                        "description": "The KPM report interval; takes effect on new subscriptions.  Index values 0-19 (10ms to 10240ms; 12 = 1024ms; 18 = 5120ms) accepted.",
+                        "example": 12,
+                        "type": "integer"
+                    }
+                },
+                "type": "object"
+            },
             "NodeB": {
                 "properties": {
                     "name": {
@@ -1165,6 +1175,61 @@
                 "tags": [
                     "General"
                 ]
+            }
+        },
+        "/appconfig": {
+            "get": {
+                "description": "Get the AppConfig.",
+                "operationId": "getAppConfig",
+                "responses": {
+                    "200": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AppConfig"
+                                }
+                            }
+                        },
+                        "description": "The requested AppConfig"
+                    }
+                },
+                "tags": [
+                    "AppConfig"
+                ]
+            },
+            "put": {
+                "description": "Update the AppConfig.",
+                "operationId": "putAppConfig",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AppConfig"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "content": {},
+                        "description": "The AppConfig was updated."
+                    },
+                    "400": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Error"
+                                }
+                            }
+                        },
+                        "description": "Invalid parameter value."
+                    }
+                },
+                "tags": [
+                    "AppConfig"
+                ],
+                "x-codegen-request-body-name": "body"
             }
         }
     }
