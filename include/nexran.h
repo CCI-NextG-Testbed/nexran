@@ -172,6 +172,32 @@ class Resource : public AbstractResource {
     };
 };
 
+class AppConfig : public Resource<AppConfig> {
+ public:
+    static std::map<std::string,JsonTypeMap> propertyTypes;
+    static std::map<std::string,std::list<std::string>> propertyEnums;
+    static std::map<HttpMethod,std::list<std::string>> required;
+    static std::map<HttpMethod,std::list<std::string>> optional;
+    static std::map<HttpMethod,std::list<std::string>> disallowed;
+    static const bool propertyErrorImmediateAbort = false;
+
+    AppConfig()
+	: kpm_interval_index(e2sm::kpm::MS5120), name("appconfig") {};
+    AppConfig(e2sm::kpm::KpmPeriod_t kpm_interval_index)
+	: kpm_interval_index(e2sm::kpm::MS5120), name("appconfig") {};
+    virtual ~AppConfig() = default;
+
+    std::string& getName() { return name; };
+    void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer);
+    static AppConfig *create(rapidjson::Document& d,AppError **ae);
+    bool update(rapidjson::Document& d,AppError **ae);
+
+    e2sm::kpm::KpmPeriod_t kpm_interval_index;
+
+ private:
+    std::string name;
+};
+
 class Ue : public Resource<Ue> {
  public:
     static std::map<std::string,JsonTypeMap> propertyTypes;
@@ -519,7 +545,8 @@ class App
 	  rmr_thread(NULL),response_thread(NULL),
 	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
 	  nexran(new e2sm::nexran::NexRANModel(this)),
-	  kpm(new e2sm::kpm::KpmModel(this)) { };
+	  kpm(new e2sm::kpm::KpmModel(this)),
+	  app_config((e2sm::kpm::KpmPeriod_t)config_[Config::ItemName::KPM_INTERVAL_INDEX]->i) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
@@ -574,6 +601,7 @@ class App
 			 AppError **ae);
 
     Config &config;
+    AppConfig app_config;
 
  private:
     std::thread *rmr_thread;

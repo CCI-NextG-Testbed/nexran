@@ -588,7 +588,7 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 	e2ap.send_control_request(creq,rname);
 
 	e2sm::kpm::EventTrigger *trigger = \
-	    new e2sm::kpm::EventTrigger(kpm);
+	    new e2sm::kpm::EventTrigger(kpm,app_config.kpm_interval_index);
 	std::list<e2ap::Action *> actions;
 	actions.push_back(new e2ap::Action(1,e2ap::ACTION_REPORT,NULL,-1));
 	std::shared_ptr<e2ap::SubscriptionRequest> req = \

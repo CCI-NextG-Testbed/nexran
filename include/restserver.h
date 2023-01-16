@@ -90,6 +90,11 @@ class RestServer {
     void getVersion(const Pistache::Rest::Request &request,
 		    Pistache::Http::ResponseWriter response);
 
+    void getAppConfig(const Pistache::Rest::Request &request,
+		      Pistache::Http::ResponseWriter response);
+    void putAppConfig(const Pistache::Rest::Request &request,
+		      Pistache::Http::ResponseWriter response);
+
     void getNodeBs(const Pistache::Rest::Request &request,
 		   Pistache::Http::ResponseWriter response);
     void postNodeB(const Pistache::Rest::Request &request,

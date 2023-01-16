@@ -31,6 +31,9 @@ nexran::Config::Config()
     config[RMR_NOWAIT] = new Item(
 	BOOL,'R',"rmr-nowait","RMR_NOWAIT",false,new ItemValue(false),
 	"Do not wait for RMR route established (waits by default).");
+    config[KPM_INTERVAL_INDEX] = new Item(
+	INTEGER,'K',"kpm-interval-index","KPM_INTERVAL_INDEX",false,new ItemValue(18),
+	"Set the default KPM subscription interval; defaults to 18 (5120ms) (0-19 -> 10-10240ms).");
 
     optstr = (char *)calloc(config.size() + 2 + 1,2);
     long_options = (struct option *)calloc(config.size() + 2,
