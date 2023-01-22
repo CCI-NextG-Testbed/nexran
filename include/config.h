@@ -24,6 +24,7 @@ class Config {
 	ADMIN_HOST,
 	ADMIN_PORT,
 	RMR_NOWAIT,
+	KPM_INTERVAL_INDEX,
 	__MAX__
     };
     enum ItemType {

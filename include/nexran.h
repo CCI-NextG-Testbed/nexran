@@ -172,6 +172,32 @@ class Resource : public AbstractResource {
     };
 };
 
+class AppConfig : public Resource<AppConfig> {
+ public:
+    static std::map<std::string,JsonTypeMap> propertyTypes;
+    static std::map<std::string,std::list<std::string>> propertyEnums;
+    static std::map<HttpMethod,std::list<std::string>> required;
+    static std::map<HttpMethod,std::list<std::string>> optional;
+    static std::map<HttpMethod,std::list<std::string>> disallowed;
+    static const bool propertyErrorImmediateAbort = false;
+
+    AppConfig()
+	: kpm_interval_index(e2sm::kpm::MS5120), name("appconfig") {};
+    AppConfig(e2sm::kpm::KpmPeriod_t kpm_interval_index)
+	: kpm_interval_index(e2sm::kpm::MS5120), name("appconfig") {};
+    virtual ~AppConfig() = default;
+
+    std::string& getName() { return name; };
+    void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer);
+    static AppConfig *create(rapidjson::Document& d,AppError **ae);
+    bool update(rapidjson::Document& d,AppError **ae);
+
+    e2sm::kpm::KpmPeriod_t kpm_interval_index;
+
+ private:
+    std::string name;
+};
+
 class Ue : public Resource<Ue> {
  public:
     static std::map<std::string,JsonTypeMap> propertyTypes;
@@ -234,11 +260,30 @@ class AllocationPolicy {
 
 class ProportionalAllocationPolicy : public AllocationPolicy {
  public:
-    ProportionalAllocationPolicy(int share_) : share(share_) {};
+    ProportionalAllocationPolicy(int share_,bool auto_equalize_ = false,
+				 bool throttle_ = false,int throttle_threshold_ = -1,
+				 int throttle_period_ = 1800,int throttle_share_ = 128)
+	: share(share_),auto_equalize(auto_equalize_),
+	  throttle(throttle_),throttle_threshold(throttle_threshold_),
+	  throttle_period(throttle_period_),throttle_share(throttle_share_),
+	  is_throttling(false),throttle_end(0),throttle_saved_share(-1),
+	  metrics(throttle_period_) {};
     ~ProportionalAllocationPolicy() = default;
 
-    const char *getName() { return name; }
-    int getShare() { return share; }
+    const char *getName() { return name; };
+    int getShare() { return share; };
+    bool setShare(int share_) {
+	if (share_ < 0 || share_ > 1024)
+	    return false;
+	share = share_;
+	return true;
+    };
+    bool isAutoEqualized() { return auto_equalize; }
+    bool isThrottled() { return throttle; };
+    bool isThrottling() { return is_throttling; };
+    int maybeEndThrottling();
+    int maybeStartThrottling();
+    e2sm::kpm::MetricsIndex& getMetrics() { return metrics; };
     const AllocationPolicy::Type getType() { return AllocationPolicy::Type::Proportional; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
     {
@@ -247,6 +292,16 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
 	writer.String("proportional");
 	writer.String("share");
 	writer.Int(share);
+	writer.String("auto_equalize");
+	writer.Bool(auto_equalize);
+	writer.String("throttle");
+	writer.Bool(throttle);
+	writer.String("throttle_threshold");
+	writer.Int(throttle_threshold);
+	writer.String("throttle_period");
+	writer.Int(throttle_period);
+	writer.String("throttle_share");
+	writer.Int(throttle_share);
 	writer.EndObject();
     };
     bool update(const rapidjson::Value& obj,AppError **ae);
@@ -255,6 +310,16 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
     static constexpr const char *name = "proportional";
 
     int share;
+    bool auto_equalize;
+    bool throttle;
+    int throttle_threshold;
+    int throttle_period;
+    int throttle_share;
+
+    bool is_throttling;
+    time_t throttle_end;
+    int throttle_saved_share;
+    e2sm::kpm::MetricsIndex metrics;
 };
 
 class Slice : public Resource<Slice> {
@@ -268,7 +333,7 @@ class Slice : public Resource<Slice> {
 
     Slice(const std::string& name_)
 	: name(name_),
-	  allocation_policy(new ProportionalAllocationPolicy(1024)) {};
+	  allocation_policy(new ProportionalAllocationPolicy(512)) {};
     Slice(const std::string& name_,AllocationPolicy *allocation_policy_)
 	: name(name_),
 	  allocation_policy(allocation_policy_) {};
@@ -480,7 +545,8 @@ class App
 	  rmr_thread(NULL),response_thread(NULL),
 	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
 	  nexran(new e2sm::nexran::NexRANModel(this)),
-	  kpm(new e2sm::kpm::KpmModel(this)) { };
+	  kpm(new e2sm::kpm::KpmModel(this)),
+	  app_config((e2sm::kpm::KpmPeriod_t)config_[Config::ItemName::KPM_INTERVAL_INDEX]->i) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
@@ -535,6 +601,7 @@ class App
 			 AppError **ae);
 
     Config &config;
+    AppConfig app_config;
 
  private:
     std::thread *rmr_thread;

@@ -69,7 +69,7 @@ class SliceStatusIndication : e2sm::Indication
 	: status(NULL),e2sm::Indication(model_) {};
     SliceStatusIndication(e2sm::Model *model_,SliceStatus *status_)
 	: status(status_),e2sm::Indication(model_) {};
-    virtual ~SliceStatusIndication() = default;
+    virtual ~SliceStatusIndication() { if (status) delete status; };
 
     SliceStatus *status;
 };

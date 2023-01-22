@@ -117,7 +117,18 @@ bool App::handle(e2ap::ControlFailure *control)
 
 bool App::handle(e2ap::Indication *ind)
 {
+    bool retval = false;
+
     mdclog_write(MDCLOG_DEBUG,"nexran Indication handler");
+    if (ind->model) {
+	e2sm::kpm::KpmIndication *kind = \
+	    dynamic_cast<e2sm::kpm::KpmIndication *>(ind->model);
+	if (kind)
+	    retval = handle(kind);
+    }
+
+    delete ind;
+    return retval;
 }
 
 bool App::handle(e2ap::ErrorIndication *ind)
@@ -130,9 +141,285 @@ bool App::handle(e2sm::nexran::SliceStatusIndication *ind)
     mdclog_write(MDCLOG_DEBUG,"nexran SliceStatusIndication handler");
 }
 
-bool App::handle(e2sm::kpm::KpmIndication *ind)
+bool App::handle(e2sm::kpm::KpmIndication *kind)
 {
-    mdclog_write(MDCLOG_DEBUG,"kpm KpmIndication handler");
+    mdclog_write(MDCLOG_INFO,"KpmIndication: %s",
+		 kind->report->to_string('\n',',').c_str());
+
+    // If we don't have BW reports for all slices, do not modify proportions?
+    // Add up all slice dl_bytes, get proportions
+    // map those to share proportions
+    // figure out the delta for each slice to equalize
+    // 10, 5, 10 // 512, 512, 512
+    // new target: (25/3)=8.333... for each
+    // 25/3-10=-1.667, 25/3-5=3.333, 25/3-10=-1.667
+    // -1.667/10 == -16.67% (apply that to current share, so remove 16.67%
+    // of its share, and so on)
+    // new shares: 512+(512*-.1667) = 426
+    //             512+(512*.6667) = 853
+    //             512+(512*-.1667) = 426
+    // If all share factors are within 5%, make no changes.
+    
+    // ugh, this is also assuming a single nodeb, because our slice
+    // share policy is global, not per nodeb
+    
+    // but -- we could also keep a per-nodeb specialization :-D
+    // maybe hide it from user, who knows
+
+    e2sm::kpm::KpmReport *report = kind->report;
+    if (report->slices.size() == 0) {
+	mdclog_write(MDCLOG_DEBUG,"no slices in KPM report; not autoequalizing");
+	if (mdclog_level_get() == MDCLOG_DEBUG) {
+	    mutex.lock();
+	    std::stringstream ss;
+	    for (auto it = db[ResourceType::SliceResource].begin();
+		 it != db[ResourceType::SliceResource].end();
+		 ++it) {
+		Slice *slice = (Slice *)it->second;
+		if (dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy()) == NULL)
+		    continue;
+		ProportionalAllocationPolicy *policy = \
+		    dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+		if (false && !policy->isAutoEqualized())
+		    continue;
+		ss << it->first << "[share=" << policy->getShare() << "]" << std::endl;
+	    }
+	    mutex.unlock();
+	    mdclog_write(MDCLOG_DEBUG,"current shares: %s",ss.str().c_str());
+	}
+	return true;
+    }
+
+    // Have to lock at this point; we're going to iterate over
+    // and possibly adjust the slice proportions.
+    mutex.lock();
+
+    // Index some stuff locally for easier iteration; save share modification factors.
+    std::map<std::string,Slice *> slices;
+    std::map<std::string,Slice *> report_slices;
+    std::map<std::string,ProportionalAllocationPolicy *> policies;
+    std::map<std::string,float> new_share_factors;
+    //std::map<std::string,int> new_shares;
+    uint64_t slices_total = 0;
+    uint64_t slices_prb_total = 0;
+
+    // Create local indexes.
+    for (auto it = db[ResourceType::SliceResource].begin(); it != db[ResourceType::SliceResource].end(); ++it) {
+	std::string slice_name = it->first;
+	Slice *slice = (Slice *)it->second;
+	ProportionalAllocationPolicy *policy = \
+	    dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+	if (!policy)
+	    continue;
+
+	slices[slice_name] = slice;
+	policies[slice_name] = policy;
+	// placeholder until later iteration
+	new_share_factors[slice_name] = 0.0f;
+    }
+
+    int num_autoeq_slices = 0;
+    for (auto it = report->slices.begin(); it != report->slices.end(); ++it) {
+	std::string slice_name = it->first;
+	// If this is not a slice we know of, ignore.
+	if (slices.count(slice_name) == 0)
+	    continue;
+	Slice *slice = (Slice *)slices[slice_name];
+	ProportionalAllocationPolicy *policy = \
+	    dynamic_cast<ProportionalAllocationPolicy *>(slice->getPolicy());
+	if (!policy)
+	    continue;
+
+	report_slices[slice_name] = slice;
+
+	// NB: only auto-eq amongst metrics for auto-eq'd slices.
+	// XXX: is this right?
+	if (policy->isAutoEqualized()) {
+	    slices_total += it->second.dl_bytes;
+	    slices_prb_total += it->second.dl_prbs;
+	    ++num_autoeq_slices;
+	}
+
+	policy->getMetrics().add(it->second);
+    }
+
+    // First, check if any slices should be released from throttling.
+    for (auto it = slices.begin(); it != slices.end(); ++it) {
+	std::string slice_name = it->first;
+	Slice *slice = (Slice *)it->second;
+	ProportionalAllocationPolicy *policy = policies[slice_name];
+	if (!policy->isThrottled() || !policy->isThrottling())
+	    continue;
+
+	// Ensure we flush old metrics, even if we didn't add any new ones
+	// from the current report.
+	policy->getMetrics().flush();
+
+	int new_share = policy->maybeEndThrottling();
+	if (new_share > -1) {
+	    mdclog_write(MDCLOG_DEBUG,"stopping throttling slice '%s' (%d -> %d)",
+			 slice_name.c_str(),policy->getShare(),new_share);
+	    // NB: we just compute a share factor, because that's what the
+	    // auto-equalizing code cares about.
+	    // nshare = cshare + (cshare * f)
+	    // n - c = c * f
+	    // (n - c) / c = f
+	    // 110 = 100 + 100 * .1
+	    // (110 - 100) / 100 = f
+	    int cur_share = policy->getShare();
+	    new_share_factors[slice_name] = (new_share - cur_share) / (float)cur_share;
+	}
+    }
+
+    // Second, check if any slices should be newly throttled.
+    for (auto it = slices.begin(); it != slices.end(); ++it) {
+	std::string slice_name = it->first;
+	Slice *slice = (Slice *)it->second;
+	ProportionalAllocationPolicy *policy = policies[slice_name];
+	if (!policy->isThrottled() || policy->isThrottling())
+	    continue;
+
+	// Ensure we flush old metrics, even if we didn't add any new ones
+	// from the current report.
+	e2sm::kpm::MetricsIndex& metrics = policy->getMetrics();
+	mdclog_write(MDCLOG_DEBUG,"considering throttle start for slice '%s': %ld (%d)",
+		     slice_name.c_str(),metrics.get_total_bytes(),metrics.size());
+	metrics.flush();
+	mdclog_write(MDCLOG_DEBUG,"considering throttle start for slice '%s': %ld (%d) (post flush)",
+		     slice_name.c_str(),metrics.get_total_bytes(),metrics.size());
+
+	int new_share = policy->maybeStartThrottling();
+	if (new_share > -1) {
+	    mdclog_write(MDCLOG_DEBUG,"starting throttling slice '%s' (%d -> %d)",
+			 slice_name.c_str(),policy->getShare(),new_share);
+	    // NB: we just compute a share factor, because that's what the
+	    // auto-equalizing code cares about.
+	    int cur_share = policy->getShare();
+	    new_share_factors[slice_name] = (new_share - cur_share) / (float)cur_share;
+	}
+    }
+
+    // Begin auto-equalize checks.
+    bool any_above_threshold = false;
+    uint64_t available_prbs_per_slice = 0;
+    if (num_autoeq_slices > 0)
+	available_prbs_per_slice = (report->period_ms * 2 * report->available_dl_prbs) / num_autoeq_slices;
+    uint64_t prb_threshold = (uint64_t)(0.15f * available_prbs_per_slice);
+
+    if (available_prbs_per_slice > 0) {
+	// Check PRB utilization.  If no slice has utilized at least 15% of an
+	// even PRB allocation, do nothing.
+	for (auto it = report_slices.begin(); it != report_slices.end(); ++it) {
+	    std::string slice_name = it->first;
+	    uint64_t dl_prbs = report->slices[slice_name].dl_prbs;
+
+	    if (dl_prbs > prb_threshold) {
+		any_above_threshold = true;
+		break;
+	    }
+	}
+    }
+
+    // Create the new share factors.
+    if (any_above_threshold) {
+	mdclog_write(MDCLOG_INFO,"PRB utilization threshold (%lu/%lu) reached; checking for new share factors",
+		     prb_threshold,available_prbs_per_slice);
+	any_above_threshold = false;
+	for (auto it = report_slices.begin(); it != report_slices.end(); ++it) {
+	    std::string slice_name = it->first;
+	    uint64_t dl_bytes = report->slices[slice_name].dl_bytes;
+	    ProportionalAllocationPolicy *policy = policies[slice_name];
+	    if (!policy->isAutoEqualized()) {
+		mdclog_write(MDCLOG_DEBUG,"skipping slice '%s'; not autoequalized",
+			     slice_name.c_str());
+		continue;
+	    }
+
+	    if (new_share_factors[slice_name] != 0.0f) {
+		mdclog_write(MDCLOG_DEBUG,"skipping slice '%s' with existing new_share_factor %f",
+			     slice_name.c_str(),new_share_factors[slice_name]);
+		continue;
+	    }
+
+	    float nf = ((float)slices_total / num_autoeq_slices - dl_bytes) / dl_bytes;
+	    if (nf > 0.05f || nf < -0.05f) {
+		any_above_threshold = true;
+		mdclog_write(MDCLOG_DEBUG,"candidate proportional share factor above threshold (%s): %f",
+			     slice_name.c_str(),nf);
+	    }
+	    else
+		mdclog_write(MDCLOG_DEBUG,"candidate proportional share factor below threshold (%s): %f",
+			     slice_name.c_str(),nf);
+
+	}
+    }
+    // XXX: have to do a second time through the loop to actually set the
+    // new share factors, sigh
+    if (any_above_threshold) {
+	for (auto it = report->slices.begin(); it != report->slices.end(); ++it) {
+	    std::string slice_name = it->first;
+	    uint64_t dl_bytes = report->slices[slice_name].dl_bytes;
+	    if (policies.count(slice_name) == 0)
+		continue;
+	    ProportionalAllocationPolicy *policy = policies[slice_name];
+	    if (!policy->isAutoEqualized())
+		continue;
+
+	    if (new_share_factors[slice_name] != 0.0f)
+		continue;
+
+	    new_share_factors[slice_name] = ((float)slices_total / num_autoeq_slices - dl_bytes) / dl_bytes;
+	    mdclog_write(MDCLOG_DEBUG,"new proportional share factor (%s): %f",
+			 slice_name.c_str(),new_share_factors[slice_name]);
+	}
+    }
+
+    // Handle any updates; log either way.
+    for (auto it = new_share_factors.begin(); it != new_share_factors.end(); ++it) {
+	std::string slice_name = it->first;
+	// Update the policies and push out control messages to bound
+	// nodebs.
+	Slice *slice = slices[slice_name];
+	ProportionalAllocationPolicy *policy = policies[slice_name];
+	int cshare = policy->getShare();
+	int nshare = std::min((int)(cshare + (cshare * it->second)),1024);
+	if (nshare < 1 || nshare < 64)
+	    //nshare = 1;
+	    nshare = 64;
+	policy->setShare(nshare);
+	if (cshare == nshare) {
+	    mdclog_write(MDCLOG_INFO,"slice '%s' share unchanged: %d",
+			 slice_name.c_str(),nshare);
+	    continue;
+	}
+	mdclog_write(MDCLOG_INFO,"slice '%s' share: %d -> %d",
+		     slice_name.c_str(),cshare,nshare);
+	e2sm::nexran::ProportionalAllocationPolicy *npolicy = \
+	    new e2sm::nexran::ProportionalAllocationPolicy(nshare);
+	e2sm::nexran::SliceConfig *sc = new e2sm::nexran::SliceConfig(slice_name,npolicy);
+	e2sm::nexran::SliceConfigRequest *sreq = new e2sm::nexran::SliceConfigRequest(nexran,sc);
+	sreq->encode();
+
+	for (auto it2 = db[ResourceType::NodeBResource].begin();
+	     it2 != db[ResourceType::NodeBResource].end();
+	     ++it2) {
+	    NodeB *nodeb = (NodeB *)it2->second;
+
+	    if (!nodeb->is_slice_bound(slice_name))
+		continue;
+
+	    // Each request needs a different RequestId, so we have to
+	    // re-encode each time.
+	    std::shared_ptr<e2ap::ControlRequest> creq = std::make_shared<e2ap::ControlRequest>(
+                e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		1,sreq,e2ap::CONTROL_REQUEST_ACK);
+	    creq->set_meid(nodeb->getName());
+	    e2ap.send_control_request(creq,nodeb->getName());
+	}
+    }
+
+    mutex.unlock();
+    return true;
 }
 
 void App::response_handler()
@@ -301,7 +588,7 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 	e2ap.send_control_request(creq,rname);
 
 	e2sm::kpm::EventTrigger *trigger = \
-	    new e2sm::kpm::EventTrigger(kpm);
+	    new e2sm::kpm::EventTrigger(kpm,app_config.kpm_interval_index);
 	std::list<e2ap::Action *> actions;
 	actions.push_back(new e2ap::Action(1,e2ap::ACTION_REPORT,NULL,-1));
 	std::shared_ptr<e2ap::SubscriptionRequest> req = \
@@ -418,6 +705,8 @@ bool App::del(ResourceType rt,std::string& rname,
 	    creq->set_meid(nodeb->getName());
 	    e2ap.send_control_request(creq,nodeb->getName());
 	}
+
+	e2ap.delete_all_subscriptions(rname);
     }
 
     delete db[rt][rname];

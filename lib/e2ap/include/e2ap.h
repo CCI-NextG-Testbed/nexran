@@ -220,7 +220,7 @@ class SubscriptionDeleteResponse : public Message
     long instance_id;
     RanFunctionId function_id;
 
-    std::shared_ptr<SubscriptionRequest> req;
+    std::shared_ptr<SubscriptionDeleteRequest> req;
 };
 
 class SubscriptionDeleteFailure : public Message
@@ -245,7 +245,7 @@ class SubscriptionDeleteFailure : public Message
     long cause;
     long cause_detail;
 
-    std::shared_ptr<SubscriptionRequest> req;
+    std::shared_ptr<SubscriptionDeleteRequest> req;
 };
 
 typedef enum ControlRequestAck
@@ -329,7 +329,8 @@ class Indication : public Message
     Indication()
 	: requestor_id(-1),instance_id(-1),function_id(-1),
 	  action_id(-1),serial_number(-1),type(-1),
-	  call_process_id(NULL),call_process_id_len(-1),Message() {};
+	  call_process_id(NULL),call_process_id_len(-1),
+	  subscription_request(NULL),Message() {};
     Indication(
         long requestor_id_,long instance_id_,RanFunctionId function_id_,
 	long action_id_,long serial_number_,long type_,
@@ -338,8 +339,8 @@ class Indication : public Message
 	  function_id(function_id_),action_id(action_id_),
 	  serial_number(serial_number_),type(type_),
 	  call_process_id(call_process_id_),call_process_id_len(call_process_id_len_),
-	  Message() {};
-    virtual ~Indication() = default;
+	  subscription_request(NULL),Message() {};
+    virtual ~Indication();
 
     virtual bool encode();
 
@@ -352,6 +353,7 @@ class Indication : public Message
     unsigned char *call_process_id;
     size_t call_process_id_len;
     e2sm::Indication *model;
+    std::shared_ptr<SubscriptionRequest> subscription_request;
 };
 
 class ErrorIndication : public Message
@@ -426,11 +428,18 @@ class E2AP {
      */
     std::shared_ptr<SubscriptionRequest> lookup_pending_subscription
         (std::string& xid);
-    std::shared_ptr<SubscriptionRequest> lookup_subscription
+    std::shared_ptr<SubscriptionResponse> lookup_subscription
         (int subid);
+    std::shared_ptr<SubscriptionDeleteRequest> lookup_pending_subscription_delete
+        (std::string& xid);
+    bool delete_all_subscriptions
+        (std::string& meid);
     std::shared_ptr<ControlRequest> lookup_control
         (long requestor_id,long instance_id);
 
+ private:
+    bool _send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
+					   const std::string& meid, bool locked);
  protected:
     std::mutex mutex;
     long requestor_id;
@@ -438,8 +447,8 @@ class E2AP {
     std::list<e2sm::Model *> models;
     std::map<long,std::shared_ptr<ControlRequest>> controls;
     std::map<std::string,std::shared_ptr<SubscriptionRequest>> pending_subscriptions;
-    std::map<int,std::shared_ptr<SubscriptionRequest>> subscriptions;
-    std::map<long,std::shared_ptr<SubscriptionDeleteRequest>> subscription_deletes;
+    std::map<int,std::shared_ptr<SubscriptionResponse>> subscriptions;
+    std::map<std::string,std::shared_ptr<SubscriptionDeleteRequest>> pending_deletes;
     AgentInterface *agent_if;
 };
 

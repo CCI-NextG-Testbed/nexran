@@ -28,6 +28,13 @@ void RestServer::setupRoutes()
 	Pistache::Rest::Routes::bind(&RestServer::getVersion,this));
 
     Pistache::Rest::Routes::Get(
+	router,VERSION_PREFIX "/appconfig",
+	Pistache::Rest::Routes::bind(&RestServer::getAppConfig,this));
+    Pistache::Rest::Routes::Put(
+	router,VERSION_PREFIX "/appconfig",
+	Pistache::Rest::Routes::bind(&RestServer::putAppConfig,this));
+
+    Pistache::Rest::Routes::Get(
 	router,VERSION_PREFIX "/nodebs/:name",
 	Pistache::Rest::Routes::bind(&RestServer::getNodeB,this));
     Pistache::Rest::Routes::Get(
@@ -158,6 +165,42 @@ void RestServer::getVersion(
 {
     response.send(
         Pistache::Http::Code::Ok,versionJson.c_str());
+}
+
+void RestServer::getAppConfig(
+    const Pistache::Rest::Request &request,
+    Pistache::Http::ResponseWriter response)
+{
+    rapidjson::StringBuffer sb;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+
+    app->app_config.serialize(writer);
+    response.send(Pistache::Http::Code::Ok,sb.GetString());
+}
+
+void RestServer::putAppConfig(
+    const Pistache::Rest::Request &request,
+    Pistache::Http::ResponseWriter response)
+{
+    rapidjson::StringBuffer sb;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(sb);
+    AppError *ae = NULL;
+    rapidjson::Document d;
+
+    d.Parse(request.body().c_str());
+
+    if (!app->app_config.update(d,&ae)) {
+	if (ae) {
+	    ae->serialize(writer);
+	    response.send(static_cast<Pistache::Http::Code>(ae->http_status),
+			  sb.GetString());
+	}
+	else
+	    response.send(Pistache::Http::Code::Bad_Request);
+	return;
+    }
+
+    response.send(Pistache::Http::Code::Ok);
 }
 
 void RestServer::getNodeBs(
