@@ -146,6 +146,60 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
     mdclog_write(MDCLOG_INFO,"KpmIndication: %s",
 		 kind->report->to_string('\n',',').c_str());
 
+    e2sm::kpm::KpmReport *report = kind->report;
+
+    if (influxdb && (report->slices.size() || report->ues.size())) {
+	influxdb->batchOf(report->slices.size() + report->ues.size());
+	for (auto it = report->slices.begin(); it != report->slices.end(); ++it) {
+	    influxdb->write(influxdb::Point{"slice"}
+		.addField("dl_bytes", (long long int)it->second.dl_bytes)
+		.addField("ul_bytes", (long long int)it->second.ul_bytes)
+		.addField("dl_prbs", (long long int)it->second.dl_prbs)
+		.addField("ul_prbs", (long long int)it->second.ul_prbs)
+		.addField("tx_pkts", (long long int)it->second.tx_pkts)
+		.addField("tx_errors", (long long int)it->second.tx_errors)
+		.addField("tx_brate", (long long int)it->second.tx_brate)
+		.addField("rx_pkts", (long long int)it->second.rx_pkts)
+		.addField("rx_errors", (long long int)it->second.rx_errors)
+		.addField("rx_brate", (long long int)it->second.rx_brate)
+		.addField("dl_cqi", it->second.dl_cqi)
+		.addField("dl_ri", it->second.dl_ri)
+		.addField("dl_pmi", it->second.dl_pmi)
+		.addField("ul_phr", it->second.ul_phr)
+		.addField("ul_sinr", it->second.ul_sinr)
+		.addField("ul_mcs", it->second.ul_mcs)
+		.addField("ul_samples", (long long int)it->second.ul_samples)
+		.addTag("slice", it->first.c_str()));
+	}
+	for (auto it = report->ues.begin(); it != report->ues.end(); ++it) {
+	    influxdb->write(influxdb::Point{"ue"}
+		.addField("dl_bytes", (long long int)it->second.dl_bytes)
+		.addField("ul_bytes", (long long int)it->second.ul_bytes)
+		.addField("dl_prbs", (long long int)it->second.dl_prbs)
+		.addField("ul_prbs", (long long int)it->second.ul_prbs)
+		.addField("tx_pkts", (long long int)it->second.tx_pkts)
+		.addField("tx_errors", (long long int)it->second.tx_errors)
+		.addField("tx_brate", (long long int)it->second.tx_brate)
+		.addField("rx_pkts", (long long int)it->second.rx_pkts)
+		.addField("rx_errors", (long long int)it->second.rx_errors)
+		.addField("rx_brate", (long long int)it->second.rx_brate)
+		.addField("dl_cqi", it->second.dl_cqi)
+		.addField("dl_ri", it->second.dl_ri)
+		.addField("dl_pmi", it->second.dl_pmi)
+		.addField("ul_phr", it->second.ul_phr)
+		.addField("ul_sinr", it->second.ul_sinr)
+		.addField("ul_mcs", it->second.ul_mcs)
+		.addField("ul_samples", (long long int)it->second.ul_samples)
+		.addTag("ue", std::to_string(it->first).c_str()));
+	}
+	try {
+	    influxdb->flushBatch();
+	}
+	catch (...) {
+	    mdclog_write(MDCLOG_ERR,"failed to write KPM points to influxdb");
+	}
+    }
+
     // If we don't have BW reports for all slices, do not modify proportions?
     // Add up all slice dl_bytes, get proportions
     // map those to share proportions
@@ -166,7 +220,6 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
     // but -- we could also keep a per-nodeb specialization :-D
     // maybe hide it from user, who knows
 
-    e2sm::kpm::KpmReport *report = kind->report;
     if (report->slices.size() == 0) {
 	mdclog_write(MDCLOG_DEBUG,"no slices in KPM report; not autoequalizing");
 	if (mdclog_level_get() == MDCLOG_DEBUG) {
@@ -999,6 +1052,23 @@ bool App::unbind_ue_slice(std::string& imsi,std::string& slice_name,
 
     mdclog_write(MDCLOG_DEBUG,"unbound ue %s from nodeb %s",
 		 imsi.c_str(),slice_name.c_str());
+
+    return true;
+}
+
+bool App::handle_appconfig_update(void)
+{
+    if (app_config.influxdb_url != influxdb_url) {
+	if (influxdb)
+	    influxdb.reset(nullptr);
+	if (app_config.influxdb_url.length() > 0) {
+	    influxdb = influxdb::InfluxDBFactory::Get(app_config.influxdb_url.c_str());
+	    influxdb_url = app_config.influxdb_url;
+	}
+	else {
+	    influxdb_url = std::string();
+	}
+    }
 
     return true;
 }

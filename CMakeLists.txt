@@ -20,6 +20,7 @@ option(ENABLE_BUILD_TIMESTAMP "Enable build timestamp" OFF)
 
 find_package(Threads REQUIRED)
 find_package(Pistache 0.0.2 REQUIRED)
+find_package(InfluxDB REQUIRED)
 pkg_check_modules(HAVE_MDCLOG REQUIRED mdclog)
 
 find_path(RICXFCPP_INCLUDE_DIRS ricxfcpp/messenger.hpp REQUIRED)

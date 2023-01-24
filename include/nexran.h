@@ -15,6 +15,8 @@
 #include "rapidjson/prettywriter.h"
 #include "rapidjson/document.h"
 
+#include "InfluxDBFactory.h"
+
 #include "ricxfcpp/messenger.hpp"
 
 #include "restserver.h"
@@ -182,9 +184,12 @@ class AppConfig : public Resource<AppConfig> {
     static const bool propertyErrorImmediateAbort = false;
 
     AppConfig()
-	: kpm_interval_index(e2sm::kpm::MS5120), name("appconfig") {};
-    AppConfig(e2sm::kpm::KpmPeriod_t kpm_interval_index)
-	: kpm_interval_index(e2sm::kpm::MS5120), name("appconfig") {};
+	: kpm_interval_index(e2sm::kpm::MS5120), influxdb_url(""),
+	  name("appconfig") {};
+    AppConfig(e2sm::kpm::KpmPeriod_t kpm_interval_index_,
+	      std::string influxdb_url_)
+	: kpm_interval_index(kpm_interval_index_), influxdb_url(influxdb_url_),
+	  name("appconfig") {};
     virtual ~AppConfig() = default;
 
     std::string& getName() { return name; };
@@ -193,6 +198,7 @@ class AppConfig : public Resource<AppConfig> {
     bool update(rapidjson::Document& d,AppError **ae);
 
     e2sm::kpm::KpmPeriod_t kpm_interval_index;
+    std::string influxdb_url;
 
  private:
     std::string name;
@@ -546,7 +552,8 @@ class App
 	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
 	  nexran(new e2sm::nexran::NexRANModel(this)),
 	  kpm(new e2sm::kpm::KpmModel(this)),
-	  app_config((e2sm::kpm::KpmPeriod_t)config_[Config::ItemName::KPM_INTERVAL_INDEX]->i) { };
+	  app_config((e2sm::kpm::KpmPeriod_t)config_[Config::ItemName::KPM_INTERVAL_INDEX]->i,
+		     std::string(config_[Config::ItemName::INFLUXDB_URL]->s)) { };
     virtual ~App() = default;
     virtual void init();
     virtual void start();
@@ -599,6 +606,7 @@ class App
 		       AppError **ae);
     bool unbind_ue_slice(std::string& imsi,std::string& slice_name,
 			 AppError **ae);
+    bool handle_appconfig_update(void);
 
     Config &config;
     AppConfig app_config;
@@ -626,6 +634,8 @@ class App
 	{ ResourceType::SliceResource, "slices" },
 	{ ResourceType::UeResource, "ues" }
     };
+    std::unique_ptr<influxdb::InfluxDB> influxdb;
+    std::string influxdb_url;
 };
 
 }

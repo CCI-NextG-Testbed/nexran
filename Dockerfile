@@ -13,7 +13,7 @@ ARG RMR_VERSION=4.4.6
 RUN apt-get update \
   && apt-get install -y cmake g++ libssl-dev rapidjson-dev git \
     ca-certificates curl gnupg apt-transport-https apt-utils \
-    pkg-config autoconf libtool \
+    pkg-config autoconf libtool libcurl4-openssl-dev \
   && curl -s https://packagecloud.io/install/repositories/o-ran-sc/${ORAN_REPO}/script.deb.sh | os=debian dist=stretch bash  \
   && ( [ "${ORAN_VERSIONS}" = "latest" ] \
       || apt-get install -y \
@@ -49,6 +49,14 @@ RUN cd /tmp \
   && cd pistache && mkdir build && cd build \
   && cmake ../ && make install && ldconfig \
   && cd .. && rm -rf /tmp/pistache
+
+RUN cd /tmp \
+  && git clone https://github.com/offa/influxdb-cxx \
+  && cd influxdb-cxx \
+  && git checkout 6b76bd02f26166e03888214914e5f9a000feb7d8 \
+  && mkdir -p build && cd build \
+  && cmake ../ && make install && ldconfig \
+  && cd .. && rm -rf /tmp/influxdb-cxx
 
 COPY . /nexran
 

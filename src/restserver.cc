@@ -200,6 +200,8 @@ void RestServer::putAppConfig(
 	return;
     }
 
+    app->handle_appconfig_update();
+
     response.send(Pistache::Http::Code::Ok);
 }
 

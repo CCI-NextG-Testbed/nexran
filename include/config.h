@@ -25,6 +25,7 @@ class Config {
 	ADMIN_PORT,
 	RMR_NOWAIT,
 	KPM_INTERVAL_INDEX,
+	INFLUXDB_URL,
 	__MAX__
     };
     enum ItemType {

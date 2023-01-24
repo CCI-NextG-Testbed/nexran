@@ -5,13 +5,15 @@
 namespace nexran {
 
 std::map<std::string,JsonTypeMap> AppConfig::propertyTypes = {
-    { "kpm_interval_index",JsonTypeMap::INT }
+    { "kpm_interval_index",JsonTypeMap::INT },
+    { "influxdb_url",JsonTypeMap::STRING }
 };
 std::map<std::string,std::list<std::string>> AppConfig::propertyEnums;
 std::map<HttpMethod,std::list<std::string>> AppConfig::required = {
     { HttpMethod::PUT,{ "kpm_interval_index" } }
 };
 std::map<HttpMethod,std::list<std::string>> AppConfig::optional = {
+    { HttpMethod::PUT,{ "influxdb_url" } }
 };
 std::map<HttpMethod,std::list<std::string>> AppConfig::disallowed = {
 };
@@ -21,6 +23,8 @@ void AppConfig::serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
     writer.StartObject();
     writer.String("kpm_interval_index");
     writer.Int((int)kpm_interval_index);
+    writer.String("influxdb_url");
+    writer.String(influxdb_url.c_str());
     writer.EndObject();
 };
 
@@ -59,6 +63,10 @@ bool AppConfig::update(rapidjson::Document& d,AppError **ae)
 
     if (obj.HasMember("kpm_interval_index"))
 	kpm_interval_index = (e2sm::kpm::KpmPeriod_t)obj["kpm_interval_index"].GetInt();
+
+    if (obj.HasMember("influxdb_url")
+	&& strcmp(obj["influxdb_url"].GetString(),influxdb_url.c_str()) != 0)
+	influxdb_url = std::string(obj["influxdb_url"].GetString());
 
     return true;
 }
