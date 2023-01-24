@@ -34,7 +34,12 @@
                         "description": "The KPM report interval; takes effect on new subscriptions.  Index values 0-19 (10ms to 10240ms; 12 = 1024ms; 18 = 5120ms) accepted.",
                         "example": 12,
                         "type": "integer"
-                    }
+                    },
+		    "influxdb_url": {
+			"description": "An InfluxDB URL to log incoming metrics into.  Should be either http or https scheme, and can include username/password.",
+			"example": "http://localhost:8086?db=foo",
+			"type": "string"
+		    }
                 },
                 "type": "object"
             },
