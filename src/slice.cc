@@ -77,7 +77,8 @@ Slice *Slice::create(rapidjson::Document& d,AppError **ae)
 	bool throttle = false;
 	int throttle_threshold = -1;
 	int throttle_period = 1800;
-	int throttle_share = 128;
+	int throttle_share = 0;
+	int throttle_target = 0;
 	if (obj["allocation_policy"].HasMember("throttle"))
 	    throttle = obj["allocation_policy"]["throttle"].GetBool();
 	if (obj["allocation_policy"].HasMember("throttle_threshold"))
@@ -86,10 +87,16 @@ Slice *Slice::create(rapidjson::Document& d,AppError **ae)
 	    throttle_period = obj["allocation_policy"]["throttle_period"].GetInt();
 	if (obj["allocation_policy"].HasMember("throttle_share"))
 	    throttle_share = obj["allocation_policy"]["throttle_share"].GetInt();
+	if (obj["allocation_policy"].HasMember("throttle_target"))
+	    throttle_target = obj["allocation_policy"]["throttle_target"].GetInt();
+
+	if (!throttle_share && !throttle_target)
+	    throttle_share = 128;
 
 	allocation_policy = new ProportionalAllocationPolicy(
 	    obj["allocation_policy"]["share"].GetInt(),auto_equalize,
-	    throttle,throttle_threshold,throttle_period,throttle_share);
+	    throttle,throttle_threshold,throttle_period,throttle_share,
+	    throttle_target);
     }
     if (allocation_policy)
 	return new Slice(std::string(obj["name"].GetString()),

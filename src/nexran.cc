@@ -322,6 +322,13 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
 	    int cur_share = policy->getShare();
 	    new_share_factors[slice_name] = (new_share - cur_share) / (float)cur_share;
 	}
+	else {
+	    new_share = policy->maybeUpdateThrottling();
+	    if (new_share > -1 && new_share != policy->getShare()) {
+		int cur_share = policy->getShare();
+		new_share_factors[slice_name] = (new_share - cur_share) / (float)cur_share;
+	    }
+	}
     }
 
     // Second, check if any slices should be newly throttled.

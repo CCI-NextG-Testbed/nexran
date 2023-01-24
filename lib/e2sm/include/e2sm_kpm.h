@@ -45,6 +45,7 @@ class MetricsIndex
 	: period(period_),queue() {};
 
     void add(entity_metrics_t m);
+    entity_metrics_t *current(void);
     entity_metrics_t& get_totals() { return totals; };
     uint64_t get_total_bytes() { return totals.dl_bytes + totals.ul_bytes; };
     int size() { return queue.size(); };

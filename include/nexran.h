@@ -268,10 +268,12 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
  public:
     ProportionalAllocationPolicy(int share_,bool auto_equalize_ = false,
 				 bool throttle_ = false,int throttle_threshold_ = -1,
-				 int throttle_period_ = 1800,int throttle_share_ = 128)
+				 int throttle_period_ = 1800,int throttle_share_ = 128,
+				 int throttle_target_ = 0)
 	: share(share_),auto_equalize(auto_equalize_),
 	  throttle(throttle_),throttle_threshold(throttle_threshold_),
 	  throttle_period(throttle_period_),throttle_share(throttle_share_),
+	  throttle_target(throttle_target_),
 	  is_throttling(false),throttle_end(0),throttle_saved_share(-1),
 	  metrics(throttle_period_) {};
     ~ProportionalAllocationPolicy() = default;
@@ -289,6 +291,7 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
     bool isThrottling() { return is_throttling; };
     int maybeEndThrottling();
     int maybeStartThrottling();
+    int maybeUpdateThrottling();
     e2sm::kpm::MetricsIndex& getMetrics() { return metrics; };
     const AllocationPolicy::Type getType() { return AllocationPolicy::Type::Proportional; }
     void serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
@@ -308,6 +311,8 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
 	writer.Int(throttle_period);
 	writer.String("throttle_share");
 	writer.Int(throttle_share);
+	writer.String("throttle_target");
+	writer.Int(throttle_target);
 	writer.EndObject();
     };
     bool update(const rapidjson::Value& obj,AppError **ae);
@@ -321,6 +326,7 @@ class ProportionalAllocationPolicy : public AllocationPolicy {
     int throttle_threshold;
     int throttle_period;
     int throttle_share;
+    int throttle_target;
 
     bool is_throttling;
     time_t throttle_end;

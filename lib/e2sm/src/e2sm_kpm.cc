@@ -48,6 +48,13 @@ void MetricsIndex::add(entity_metrics_t m)
     flush();
 }
 
+entity_metrics_t *MetricsIndex::current(void)
+{
+    if (queue.size() > 0)
+	return &queue.back();
+    return nullptr;
+}
+
 void MetricsIndex::flush()
 {
     time_t now = std::time(nullptr);
