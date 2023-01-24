@@ -211,7 +211,7 @@
 			"type": "integer"
 		    },
 		    "throttle_period": {
-			"description": "The time in seconds to throttle the overutilizing slice."
+			"description": "The time in seconds to throttle the overutilizing slice.",
 			"type": "integer"
 		    },
 		    "throttle_share": {
