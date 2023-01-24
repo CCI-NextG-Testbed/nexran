@@ -197,7 +197,31 @@
                         "maximum": 1024,
                         "minimum": 0,
                         "type": "integer"
-                    }
+                    },
+		    "auto_equalize": {
+			"description": "Include this slice in the list of slices whose throughput is equalized by dynamic reallocation of share values.",
+			"type": "boolean"
+		    },
+		    "throttle": {
+			"description": "Throttle this slice's throughput for <throttle_period> seconds when <throttle_threshold> is exceeded.",
+			"type": "boolean"
+		    },
+		    "throttle_threshold": {
+			"description": "If the total bytes used by a slice over the past <throttle_period> seconds exceeds this threshold, the slice is throttled.",
+			"type": "integer"
+		    },
+		    "throttle_period": {
+			"description": "The time in seconds to throttle the overutilizing slice."
+			"type": "integer"
+		    },
+		    "throttle_share": {
+			"description": "A fixed share to throttle to; takes precedence over <throttle_target>.",
+			"type": "integer"
+		    },
+		    "throttle_target": {
+			"description": "A target bandwidth to dynamically throttle to.",
+			"type": "integer"
+		    }
                 },
                 "required": [
                     "type","share"
