@@ -1,4 +1,6 @@
 
+#include "mdclog/mdclog.h"
+
 #include "nexran.h"
 
 namespace nexran {
@@ -44,11 +46,14 @@ int ProportionalAllocationPolicy::maybeStartThrottling()
 	e2sm::kpm::entity_metrics_t *c = metrics.current();
 	if (!c)
 	    return -1;
-	return (int)(share / ((c->dl_bytes + c->ul_bytes) / throttle_target));
+	int tbytes = c->dl_bytes + c->ul_bytes;
+	int nshare = (int)(share / (tbytes / (float)throttle_target));
+	mdclog_write(MDCLOG_DEBUG,"maybeStartThrottling: target=%d, currentbytes=%d, new share=%d",
+		     throttle_target, tbytes, nshare);
+	return nshare;
     }
     else
 	return -1;
-    
 }
 
 int ProportionalAllocationPolicy::maybeUpdateThrottling()
@@ -63,7 +68,11 @@ int ProportionalAllocationPolicy::maybeUpdateThrottling()
 	e2sm::kpm::entity_metrics_t *c = metrics.current();
 	if (!c)
 	    return -1;
-	return (int)(share / ((c->dl_bytes + c->ul_bytes) / throttle_target));
+	int tbytes = c->dl_bytes + c->ul_bytes;
+	int nshare = (int)(share / (tbytes / (float)throttle_target));
+	mdclog_write(MDCLOG_DEBUG,"maybeUpdateThrottling: target=%d, currentbytes=%d, new share=%d",
+		     throttle_target, tbytes, nshare);
+	return nshare;
     }
     else
 	return -1;
