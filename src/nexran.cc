@@ -446,6 +446,11 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
 	if (nshare < 1 || nshare < 64)
 	    //nshare = 1;
 	    nshare = 64;
+	if (influxdb) {
+	    influxdb->write(influxdb::Point{"share"}
+		.addField("share", nshare)
+		.addTag("slice", slice_name.c_str()));
+	}
 	policy->setShare(nshare);
 	if (cshare == nshare) {
 	    mdclog_write(MDCLOG_INFO,"slice '%s' share unchanged: %d",
