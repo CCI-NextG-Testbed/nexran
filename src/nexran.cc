@@ -612,7 +612,7 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 	    new e2sm::zylinium::MaskConfigRequest(nexran,mask);
 	creq = std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
-	    1,mreq,e2ap::CONTROL_REQUEST_ACK);
+	    2,mreq,e2ap::CONTROL_REQUEST_ACK);
 	creq->set_meid(rname);
 	e2ap.send_control_request(creq,rname);
     }
@@ -763,7 +763,7 @@ bool App::update(ResourceType rt,std::string& rname,
 	std::shared_ptr<e2ap::ControlRequest> creq = \
 	    std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
-	    1,mreq,e2ap::CONTROL_REQUEST_ACK);
+	    2,mreq,e2ap::CONTROL_REQUEST_ACK);
 	creq->set_meid(rname);
 	e2ap.send_control_request(creq,rname);
     }
