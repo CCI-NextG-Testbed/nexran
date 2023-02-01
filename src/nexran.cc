@@ -169,6 +169,8 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
 		.addField("ul_sinr", it->second.ul_sinr)
 		.addField("ul_mcs", it->second.ul_mcs)
 		.addField("ul_samples", (long long int)it->second.ul_samples)
+		.addField("dl_mcs", it->second.dl_mcs)
+		.addField("dl_samples", (long long int)it->second.dl_samples)
 		.addTag("slice", it->first.c_str()));
 	}
 	for (auto it = report->ues.begin(); it != report->ues.end(); ++it) {
@@ -190,6 +192,8 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
 		.addField("ul_sinr", it->second.ul_sinr)
 		.addField("ul_mcs", it->second.ul_mcs)
 		.addField("ul_samples", (long long int)it->second.ul_samples)
+		.addField("dl_mcs", it->second.dl_mcs)
+		.addField("dl_samples", (long long int)it->second.dl_samples)
 		.addTag("ue", std::to_string(it->first).c_str()));
 	}
 	try {

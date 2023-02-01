@@ -170,6 +170,8 @@ static KpmReport *decode_kpm_indication(
 			    report->ues[pui->rnti].ul_sinr = pui->ul_sinr;
 			    report->ues[pui->rnti].ul_mcs = pui->ul_mcs;
 			    report->ues[pui->rnti].ul_samples = pui->ul_samples;
+			    report->ues[pui->rnti].dl_mcs = pui->dl_mcs;
+			    report->ues[pui->rnti].dl_samples = pui->dl_samples;
 			}
 		    }
 		    if (plmn_cell_item->du_PM_EPC->perSliceReportList) {
@@ -204,6 +206,8 @@ static KpmReport *decode_kpm_indication(
 			    report->slices[slice_name].ul_sinr = psi->ul_sinr;
 			    report->slices[slice_name].ul_mcs = psi->ul_mcs;
 			    report->slices[slice_name].ul_samples = psi->ul_samples;
+			    report->slices[slice_name].dl_mcs = psi->dl_mcs;
+			    report->slices[slice_name].dl_samples = psi->dl_samples;
 			}
 		    }
 		}
@@ -301,6 +305,8 @@ std::string KpmReport::to_string(char group_delim,char item_delim)
 	   << "ul_sinr=" << it->second.ul_sinr << item_delim
 	   << "ul_mcs=" << it->second.ul_mcs << item_delim
 	   << "ul_samples=" << it->second.ul_samples << item_delim
+	   << "dl_mcs=" << it->second.dl_mcs << item_delim
+	   << "dl_samples=" << it->second.dl_samples << item_delim
 	   << "}" << group_delim;
     for (auto it = slices.begin(); it != slices.end(); ++it)
 	ss << "slice[" << it->first << "]={"
@@ -321,6 +327,8 @@ std::string KpmReport::to_string(char group_delim,char item_delim)
 	   << "ul_sinr=" << it->second.ul_sinr << item_delim
 	   << "ul_mcs=" << it->second.ul_mcs << item_delim
 	   << "ul_samples=" << it->second.ul_samples << item_delim
+	   << "dl_mcs=" << it->second.dl_mcs << item_delim
+	   << "dl_samples=" << it->second.dl_samples << item_delim
 	   << "}" << group_delim;
 
     return ss.str();

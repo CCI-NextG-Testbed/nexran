@@ -36,6 +36,8 @@ typedef struct entity_metrics
   double   ul_sinr;
   double   ul_mcs;
   int64_t  ul_samples;
+  double   dl_mcs;
+  int64_t  dl_samples;
 } entity_metrics_t;
 
 class MetricsIndex
