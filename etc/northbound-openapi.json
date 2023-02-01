@@ -115,6 +115,18 @@
                         },
                         "readOnly": true,
                         "type": "array"
+                    },
+                    "dl_rbg_mask": {
+                        "description": "A hex string of masked RBGs in the downlink.",
+                        "type": "string",
+			"default": "0x0",
+			"example": "0x1"
+                    },
+                    "ul_prb_mask": {
+                        "description": "A hex string of masked PRBs in the uplink.",
+                        "type": "string",
+			"default": "0x0",
+			"example": "0x1"
                     }
                 },
                 "required": [
@@ -510,7 +522,7 @@
                 ]
             },
             "put": {
-                "description": "Update a NodeB.  Note that you cannot change the `name`, `type`, `mcc`, `mnc`, `id`, or `id_len` properties, as indicated by the presence of the `x-immutable-on-put` property metadata in the `NodeB` model.  Thus, in the initial version of this API, there is nothing to update.  You can only invoke this endpoint successfully as a NOP by sending `{}` or a subset of the NodeB's current properties with their current values.",
+                "description": "Update a NodeB.  Note that you cannot change the `name`, `type`, `mcc`, `mnc`, `id`, or `id_len` properties, as indicated by the presence of the `x-immutable-on-put` property metadata in the `NodeB` model.",
                 "operationId": "putNodeB",
                 "parameters": [
                     {

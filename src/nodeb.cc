@@ -11,7 +11,9 @@ std::map<std::string,JsonTypeMap> NodeB::propertyTypes = {
     { "id",JsonTypeMap::INT },
     { "id_len",JsonTypeMap::UINT },
     { "status",JsonTypeMap::OBJECT },
-    { "config",JsonTypeMap::OBJECT }
+    { "config",JsonTypeMap::OBJECT },
+    { "dl_rbg_mask",JsonTypeMap::STRING },
+    { "ul_prb_mask",JsonTypeMap::STRING }
 };
 std::map<std::string,std::list<std::string>> NodeB::propertyEnums = {
     { "type",{ "gNB","gNB-CU-UP","gNB-DU","en-gNB","eNB","ng-eNB" } },
@@ -20,7 +22,8 @@ std::map<HttpMethod,std::list<std::string>> NodeB::required = {
     { HttpMethod::POST,{ "type","id","mcc","mnc" } }
 };
 std::map<HttpMethod,std::list<std::string>> NodeB::optional = {
-    { HttpMethod::POST,{ "id_len" } }
+    { HttpMethod::POST,{ "id_len","dl_rbg_mask","ul_prb_mask" } },
+    { HttpMethod::PUT,{ "dl_rbg_mask","ul_prb_mask" } }
 };
 std::map<HttpMethod,std::list<std::string>> NodeB::disallowed = {
     { HttpMethod::POST,{ "name","status","config" } },
@@ -124,6 +127,10 @@ void NodeB::serialize(rapidjson::Writer<rapidjson::StringBuffer>& writer)
 	writer.String(it->first.c_str());
     }
     writer.EndArray();
+    writer.String("dl_rbg_mask");
+    writer.String(dl_rbg_mask.c_str());
+    writer.String("ul_prb_mask");
+    writer.String(ul_prb_mask.c_str());
     writer.EndObject();
 };
 
@@ -148,6 +155,10 @@ NodeB *NodeB::create(rapidjson::Document& d,AppError **ae)
 	type_string_to_type(obj["type"].GetString()),
 	obj["mcc"].GetString(),obj["mnc"].GetString(),
 	obj["id"].GetInt(),id_len);
+    if (obj.HasMember("dl_rbg_mask"))
+	nb->set_dl_rbg_mask(obj["dl_rbg_mask"].GetString());
+    if (obj.HasMember("ul_prb_mask"))
+	nb->set_ul_prb_mask(obj["ul_prb_mask"].GetString());
     return nb;
 }
 
@@ -162,8 +173,14 @@ bool NodeB::update(rapidjson::Document& d,AppError **ae)
 	return NULL;
     }
 
-    if (!NodeB::validate_json(HttpMethod::PUT,d.GetObject(),ae))
+    const rapidjson::Value& obj = d.GetObject();
+    if (!NodeB::validate_json(HttpMethod::PUT,obj,ae))
 	return false;
+
+    if (obj.HasMember("dl_rbg_mask"))
+	set_dl_rbg_mask(obj["dl_rbg_mask"].GetString());
+    if (obj.HasMember("ul_prb_mask"))
+	set_ul_prb_mask(obj["ul_prb_mask"].GetString());
 
     return true;
 }
