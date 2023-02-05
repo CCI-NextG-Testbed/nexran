@@ -16,8 +16,10 @@ BEGIN
 -- **************************************************************
 
 BlockedMask ::= SEQUENCE {
-    blockedDLRBGMask PrintableString(SIZE(1..1024)),
-    blockedULPRBMask PrintableString(SIZE(1..1024)),
+    mask PrintableString(SIZE(1..1024)),
+    start REAL,
+    end REAL,
+    id INTEGER,
     ...
 }
 
@@ -26,7 +28,10 @@ BlockedMask ::= SEQUENCE {
 -- **************************************************************
 
 MaskConfigRequest ::= SEQUENCE {
-    blockedMask BlockedMask,
+    dlDefault PrintableString(SIZE(1..1024)),
+    ulDefault PrintableString(SIZE(1..1024)),
+    dlSched SEQUENCE (SIZE(0..256)) OF BlockedMask,
+    ulSched SEQUENCE (SIZE(0..256)) OF BlockedMask,
     ...
 }
 
@@ -35,7 +40,12 @@ MaskStatusRequest ::= SEQUENCE {
 }
 
 MaskStatusReport ::= SEQUENCE {
-    blockedMask BlockedMask,
+    dlMask BlockedMask,
+    ulMask BlockedMask,
+    dlDefault PrintableString(SIZE(1..1024)),
+    ulDefault PrintableString(SIZE(1..1024)),
+    dlSched SEQUENCE (SIZE(0..256)) OF BlockedMask,
+    ulSched SEQUENCE (SIZE(0..256)) OF BlockedMask,
     ...
 }
 

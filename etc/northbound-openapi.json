@@ -43,6 +43,31 @@
                 },
                 "type": "object"
             },
+            "BlockedMask": {
+                "properties": {
+                    "mask": {
+                        "description": "A hex string encoding a a DL RBG or UL PRB block mask.",
+                        "example": "0x1",
+                        "type": "string"
+                    },
+		    "start": {
+			"description": "The start time (UTC seconds) that this mask will take effect.  0.0 is the appropriate value to use to indicate `now`.",
+			"example": 0.0,
+			"type": "float"
+		    },
+		    "end": {
+			"description": "The end time (UTC seconds) when this mask should be removed.  If unset or 0.0, this mask may remain in effect continuously.",
+			"example": 0.0,
+			"type": "float"
+		    },
+		    "id": {
+			"description": "An optional integer id value for the mask; may help caller disambiguate which mask is in effect.",
+			"example": 3735944943,
+			"type": "integer"
+		    }
+                },
+                "type": "object"
+            },
             "NodeB": {
                 "properties": {
                     "name": {
@@ -116,17 +141,55 @@
                         "readOnly": true,
                         "type": "array"
                     },
-                    "dl_rbg_mask": {
-                        "description": "A hex string of masked RBGs in the downlink.",
+                    "dl_mask": {
+                        "description": "The current BlockedMask in use in the downlink; informational and read-only.",
+                        "type": "object",
+                        "schema": {
+                            "$ref": "#/components/schemas/BlockedMask"
+                        },
+			"default": "0x0",
+			"example": "0x1",
+                        "x-immutable-on-put": true,
+                        "x-immutable-on-post": true
+                    },
+                    "ul_mask": {
+                        "description": "The current BlockedMask in use in the uplink; informational and read-only.",
+                        "type": "object",
+                        "schema": {
+                            "$ref": "#/components/schemas/BlockedMask"
+                        },
+			"default": "0x0",
+			"example": "0x1",
+                        "x-immutable-on-put": true,
+                        "x-immutable-on-post": true
+                    },
+                    "dl_mask_def": {
+                        "description": "A hex string of masked RBGs in the downlink; default value set when there is not a currently-scheduled mask in place.",
                         "type": "string",
 			"default": "0x0",
 			"example": "0x1"
                     },
-                    "ul_prb_mask": {
-                        "description": "A hex string of masked PRBs in the uplink.",
+                    "ul_mask_def": {
+                        "description": "A hex string of masked PRBs in the uplink; default value set when there is not a currently-scheduled mask in place.",
                         "type": "string",
 			"default": "0x0",
 			"example": "0x1"
+                    },
+                    "dl_mask_sched": {
+                        "description": "A list of BlockedMasks for the downlink.  Overlap is unchecked in this implementation.  If you do not set the `end` property, or set it to `0.0`, that mask will only be replaced when the subsequent mask's `start` time is reached.  If you do set the `end` property, the subsequent mask's `start` time will *not* be checked until `end` is reached (we do not handle overlap nor ordering).  If you do not set the `id` property, it will default to `0`.  Note that when the first entry in this list becomes the active mask, it remains the first entry until it expires or is superseded by the following entry.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlockedMask"
+                        },
+			"default": []
+                    },
+                    "ul_mask_sched": {
+                        "description": "A list of BlockedMasks for the uplink.  Overlap is unchecked in this implementation.  If you do not set the `end` property, or set it to `0.0`, that mask will only be replaced when the subsequent mask's `start` time is reached.  If you do set the `end` property, the subsequent mask's `start` time will *not* be checked until `end` is reached (we do not handle overlap nor ordering).  If you do not set the `id` property, it will default to `0`.  Note that when the first entry in this list becomes the active mask, it remains the first entry until it expires or is superseded by the following entry.",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/BlockedMask"
+                        },
+			"default": []
                     }
                 },
                 "required": [

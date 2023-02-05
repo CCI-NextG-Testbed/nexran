@@ -18,24 +18,32 @@ class BlockedMask
 {
 public:
     BlockedMask() {};
-    BlockedMask(const std::string& dl_rbg_mask_,const std::string& ul_prb_mask_)
-	: dl_rbg_mask(dl_rbg_mask_),ul_prb_mask(ul_prb_mask_) {};
+    BlockedMask(const std::string& mask_,float start_,float end_,int id_)
+	: mask(mask_),start(start_),end(end_),id(id_) {};
 
-    std::string dl_rbg_mask;
-    std::string ul_prb_mask;
+    std::string mask;
+    float start;
+    float end;
+    int id;
 };
 
 class MaskConfigRequest : public e2sm::Control
 {
  public:
-    MaskConfigRequest(e2sm::Model *model_,BlockedMask *mask_)
-	: e2sm::Control(model_),mask(mask_) {};
+    MaskConfigRequest(e2sm::Model *model_,
+		      std::string& dl_def_,std::string& ul_def_,
+		      std::list<BlockedMask>& dl_sched_,
+		      std::list<BlockedMask>& ul_sched_)
+	: e2sm::Control(model_),dl_def(dl_def_),ul_def(ul_def_),
+	  dl_sched(dl_sched_),ul_sched(ul_sched_) {};
     virtual ~MaskConfigRequest() = default;
 
     virtual bool encode();
 
- private:
-    BlockedMask *mask;
+    std::string dl_def;
+    std::string ul_def;
+    std::list<BlockedMask> dl_sched;
+    std::list<BlockedMask> ul_sched;
 };
 
 class MaskStatusRequest : public e2sm::Control
@@ -48,17 +56,26 @@ class MaskStatusRequest : public e2sm::Control
     virtual bool encode();
 };
 
-class MaskStatusReport : public e2sm::Indication
+class MaskStatusReport
 {
  public:
-    MaskStatusReport(e2sm::Model *model_,BlockedMask *mask_)
-	: e2sm::Indication(model_),mask(mask_) {};
+    MaskStatusReport(BlockedMask& dl_mask_,BlockedMask& ul_mask_,
+		     std::string& dl_def_,std::string& ul_def_,
+		     std::list<BlockedMask>& dl_sched_,
+		     std::list<BlockedMask>& ul_sched_)
+	: dl_mask(dl_mask_),ul_mask(ul_mask_),dl_def(dl_def_),ul_def(ul_def_),
+	  dl_sched(dl_sched_),ul_sched(ul_sched_) {};
     virtual ~MaskStatusReport() = default;
+    std::string to_string(char group_delim = ' ',char item_delim = ',');
 
     bool encode() { return false; }
 
- private:
-    BlockedMask *mask;
+    BlockedMask dl_mask;
+    BlockedMask ul_mask;
+    std::string dl_def;
+    std::string ul_def;
+    std::list<BlockedMask> dl_sched;
+    std::list<BlockedMask> ul_sched;
 };
 
 class MaskStatusIndication : public e2sm::Indication
@@ -77,14 +94,14 @@ class MaskStatusIndication : public e2sm::Indication
 class MaskStatusControlOutcome : public e2sm::ControlOutcome
 {
  public:
-    MaskStatusControlOutcome(e2sm::Model *model_,BlockedMask *mask_)
-	: e2sm::ControlOutcome(model_),mask(mask_) {};
+    MaskStatusControlOutcome(e2sm::Model *model_,MaskStatusReport *report_)
+	: e2sm::ControlOutcome(model_),report(report_) {};
     virtual ~MaskStatusControlOutcome() = default;
 
     bool encode() { return false; };
 
  private:
-    BlockedMask *mask;
+    MaskStatusReport *report;
 };
 
 class EventTrigger : public e2sm::EventTrigger
@@ -127,4 +144,4 @@ class ZyliniumModel : public e2sm::Model
 }
 }
 
-#endif /* _E2SM_KPM_H_ */
+#endif /* _E2SM_ZYLINIUM_H_ */

@@ -122,10 +122,16 @@ bool App::handle(e2ap::Indication *ind)
 
     mdclog_write(MDCLOG_DEBUG,"nexran Indication handler");
     if (ind->model) {
-	e2sm::kpm::KpmIndication *kind = \
-	    dynamic_cast<e2sm::kpm::KpmIndication *>(ind->model);
-	if (kind)
+	e2sm::kpm::KpmIndication *kind;
+	e2sm::nexran::SliceStatusIndication *nind;
+	e2sm::zylinium::MaskStatusIndication *zind;
+
+	if ((kind = dynamic_cast<e2sm::kpm::KpmIndication *>(ind->model)) != NULL)
 	    retval = handle(kind);
+	else if ((nind = dynamic_cast<e2sm::nexran::SliceStatusIndication *>(ind->model)) != NULL)
+	    retval = handle(nind);
+	else if ((zind = dynamic_cast<e2sm::zylinium::MaskStatusIndication *>(ind->model)) != NULL)
+	    retval = handle(zind);
     }
 
     delete ind;
@@ -494,7 +500,8 @@ bool App::handle(e2sm::kpm::KpmIndication *kind)
 
 bool App::handle(e2sm::zylinium::MaskStatusIndication *ind)
 {
-    mdclog_write(MDCLOG_DEBUG,"zylinium MaskStatusIndication handler");
+    mdclog_write(MDCLOG_INFO,"MaskStatusIndication: %s",
+		 ind->report->to_string('\n',',').c_str());
 }
 
 void App::response_handler()
@@ -675,10 +682,27 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 	req->set_meid(rname);
 	e2ap.send_subscription_request(req,rname);
 
-	e2sm::zylinium::BlockedMask *mask = new e2sm::zylinium::BlockedMask(
-	    nodeb->get_dl_rbg_mask(),nodeb->get_ul_prb_mask());
+	e2sm::zylinium::MaskStatusRequest *msreq = \
+	    new e2sm::zylinium::MaskStatusRequest(zylinium);
+	std::shared_ptr<e2ap::ControlRequest> mcreq = std::make_shared<e2ap::ControlRequest>(
+            e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+	    1,msreq,e2ap::CONTROL_REQUEST_ACK);
+	mcreq->set_meid(rname);
+	e2ap.send_control_request(mcreq,rname);
+
+	e2sm::zylinium::EventTrigger *ztrigger = \
+	    new e2sm::zylinium::EventTrigger(zylinium);
+	std::list<e2ap::Action *> zactions;
+	zactions.push_back(new e2ap::Action(1,e2ap::ACTION_REPORT,NULL,-1));
+	std::shared_ptr<e2ap::SubscriptionRequest> zreq = \
+	    std::make_shared<e2ap::SubscriptionRequest>(
+		e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
+		0,ztrigger,zactions);
+	zreq->set_meid(rname);
+	e2ap.send_subscription_request(zreq,rname);
+
 	e2sm::zylinium::MaskConfigRequest *mreq = \
-	    new e2sm::zylinium::MaskConfigRequest(nexran,mask);
+	    nodeb->make_mask_config_request(zylinium);
 	creq = std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
 	    2,mreq,e2ap::CONTROL_REQUEST_ACK);
@@ -827,10 +851,8 @@ bool App::update(ResourceType rt,std::string& rname,
     if (rt == App::ResourceType::NodeBResource) {
 	NodeB *nodeb = (NodeB *)db[App::ResourceType::NodeBResource][rname];
 
-	e2sm::zylinium::BlockedMask *mask = new e2sm::zylinium::BlockedMask(
-	    nodeb->get_dl_rbg_mask(),nodeb->get_ul_prb_mask());
 	e2sm::zylinium::MaskConfigRequest *mreq = \
-	    new e2sm::zylinium::MaskConfigRequest(nexran,mask);
+	    nodeb->make_mask_config_request(zylinium);
 	std::shared_ptr<e2ap::ControlRequest> creq = \
 	    std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),

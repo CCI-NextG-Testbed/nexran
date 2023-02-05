@@ -1,5 +1,6 @@
 
 #include <cstring>
+#include <sstream>
 
 #include "mdclog/mdclog.h"
 
@@ -12,6 +13,7 @@
 #include "E2SM_ZYLINIUM_E2SM-Zylinium-ControlHeader.h"
 #include "E2SM_ZYLINIUM_E2SM-Zylinium-ControlMessage.h"
 #include "E2SM_ZYLINIUM_MaskConfigRequest.h"
+#include "E2SM_ZYLINIUM_MaskStatusReport.h"
 #include "E2SM_ZYLINIUM_E2SM-Zylinium-EventTriggerDefinition.h"
 #include "E2SM_ZYLINIUM_E2SM-Zylinium-ControlOutcome.h"
 #include "E2SM_ZYLINIUM_E2SM-Zylinium-IndicationHeader.h"
@@ -23,23 +25,91 @@ namespace e2sm
 namespace zylinium
 {
 
-static BlockedMask *decode_mask_status_report(E2SM_ZYLINIUM_MaskStatusReport *report)
+std::string MaskStatusReport::to_string(char group_delim,char item_delim)
 {
-    std::string dl_rbg_mask;
-    std::string ul_prb_mask;
+    std::stringstream ss;
 
-    if (report->blockedMask.blockedDLRBGMask.buf
-	&& report->blockedMask.blockedDLRBGMask.size > 0)
-	dl_rbg_mask = std::string(
-	    (char *)report->blockedMask.blockedDLRBGMask.buf,0,
-	    report->blockedMask.blockedDLRBGMask.size);
-    if (report->blockedMask.blockedULPRBMask.buf
-	&& report->blockedMask.blockedULPRBMask.size > 0)
-	ul_prb_mask = std::string(
-	    (char *)report->blockedMask.blockedULPRBMask.buf,0,
-	    report->blockedMask.blockedULPRBMask.size);
+    ss << "MaskStatusReport()" << group_delim;
+    ss << "dl_mask={mask=" << dl_mask.mask << item_delim
+       << "start=" << dl_mask.start << item_delim
+       << "end=" << dl_mask.end << item_delim
+       << "id=" << dl_mask.id << "}" << group_delim;
+    ss << "ul_mask={mask=" << ul_mask.mask << item_delim
+       << "start=" << ul_mask.start << item_delim
+       << "end=" << ul_mask.end << item_delim
+       << "id=" << ul_mask.id << "}" << group_delim;
+    ss << "dl_def" << dl_def << group_delim;
+    ss << "ul_def" << ul_def << group_delim;
+    ss << "dl_sched=[";
+    for (auto it = dl_sched.begin(); it != dl_sched.end(); ++it) {
+	ss << "{mask=" << it->mask << item_delim
+	   << "start=" << it->start << item_delim
+	   << "end=" << it->end << item_delim
+	   << "id=" << it->id << "}" << item_delim;
+    }
+    ss << "]" << group_delim;
+    ss << "ul_sched=[";
+    for (auto it = ul_sched.begin(); it != ul_sched.end(); ++it) {
+	ss << "{mask=" << it->mask << item_delim
+	   << "start=" << it->start << item_delim
+	   << "end=" << it->end << item_delim
+	   << "id=" << it->id << "}" << item_delim;
+    }
+    ss << "]";
 
-    return new BlockedMask(dl_rbg_mask,ul_prb_mask);
+    return ss.str();
+}
+
+static void decode_blocked_mask(E2SM_ZYLINIUM_BlockedMask *em,BlockedMask *m)
+{
+    if (em->mask.buf && em->mask.size > 0)
+	m->mask = std::string((char *)em->mask.buf,0,em->mask.size);
+    m->start = em->start;
+    m->end = em->end;
+    m->id = em->id;
+}
+
+static void encode_blocked_mask(BlockedMask& m,E2SM_ZYLINIUM_BlockedMask *em)
+{
+    em->mask.size = strlen(m.mask.c_str());
+    em->mask.buf = (uint8_t *)malloc(em->mask.size);
+    memcpy(em->mask.buf,m.mask.c_str(),em->mask.size);
+    em->start = m.start;
+    em->end = m.end;
+    em->id = m.id;
+}
+
+static MaskStatusReport *decode_mask_status_report(E2SM_ZYLINIUM_MaskStatusReport *r)
+{
+    std::string dl_def;
+    std::string ul_def;
+    BlockedMask dl_mask;
+    BlockedMask ul_mask;
+    std::list<BlockedMask> dl_sched;
+    std::list<BlockedMask> ul_sched;
+
+    if (r->dlDefault.buf && r->dlDefault.size > 0)
+	dl_def = std::string((char *)r->dlDefault.buf,0,r->dlDefault.size);
+    if (r->ulDefault.buf && r->ulDefault.size > 0)
+	ul_def = std::string((char *)r->ulDefault.buf,0,r->ulDefault.size);
+    decode_blocked_mask(&r->dlMask,&dl_mask);
+    decode_blocked_mask(&r->ulMask,&ul_mask);
+    for (int i = 0; i < r->dlSched.list.count; ++i) {
+	E2SM_ZYLINIUM_BlockedMask_t *item = \
+	    (E2SM_ZYLINIUM_BlockedMask_t *)r->dlSched.list.array[i];
+	BlockedMask m;
+	decode_blocked_mask(item,&m);
+	dl_sched.push_back(m);
+    }
+    for (int i = 0; i < r->ulSched.list.count; ++i) {
+	E2SM_ZYLINIUM_BlockedMask_t *item = \
+	    (E2SM_ZYLINIUM_BlockedMask_t *)r->ulSched.list.array[i];
+	BlockedMask m;
+	decode_blocked_mask(item,&m);
+	ul_sched.push_back(m);
+    }
+
+    return new MaskStatusReport(dl_mask,ul_mask,dl_def,ul_def,dl_sched,ul_sched);
 }
 
 Indication *ZyliniumModel::decode(
@@ -107,12 +177,12 @@ Indication *ZyliniumModel::decode(
 
     // XXX: meid
 
-    BlockedMask *mask = decode_mask_status_report(&m.choice.maskStatusReport);
+    MaskStatusReport *report = decode_mask_status_report(&m.choice.maskStatusReport);
 
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_IndicationHeader,&h);
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_IndicationMessage,&m);
 
-    return new MaskStatusReport(this,mask);
+    return new MaskStatusIndication(this,report);
 }
 
 ControlOutcome *ZyliniumModel::decode(
@@ -148,11 +218,11 @@ ControlOutcome *ZyliniumModel::decode(
 	return NULL;
     }
 
-    BlockedMask *mask = decode_mask_status_report(&o.choice.controlOutcomeFormat1.choice.maskStatusReport);
+    MaskStatusReport *report = decode_mask_status_report(&o.choice.controlOutcomeFormat1.choice.maskStatusReport);
 
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_ControlOutcome,&o);
 
-    return new MaskStatusControlOutcome(this,mask);
+    return new MaskStatusControlOutcome(this,report);
 }
 
 ControlOutcome *ZyliniumModel::decode(
@@ -188,12 +258,12 @@ ControlOutcome *ZyliniumModel::decode(
 	return NULL;
     }
 
-    BlockedMask *mask = decode_mask_status_report(
+    MaskStatusReport *report = decode_mask_status_report(
         &o.choice.controlOutcomeFormat1.choice.maskStatusReport);
 
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_ControlOutcome,&o);
 
-    return new MaskStatusControlOutcome(this,mask);
+    return new MaskStatusControlOutcome(this,report);
 }
 
 bool MaskConfigRequest::encode()
@@ -215,16 +285,21 @@ bool MaskConfigRequest::encode()
     m.choice.controlMessageFormat1.present = \
 	E2SM_ZYLINIUM_E2SM_Zylinium_ControlMessage_Format1_PR_maskConfigRequest;
 
-    E2SM_ZYLINIUM_BlockedMask_t *bm = \
-	&m.choice.controlMessageFormat1.choice.maskConfigRequest.blockedMask;
-    bm->blockedDLRBGMask.size = strlen(mask->dl_rbg_mask.c_str());
-    bm->blockedDLRBGMask.buf = (uint8_t *)malloc(bm->blockedDLRBGMask.size);
-    memcpy(bm->blockedDLRBGMask.buf,mask->dl_rbg_mask.c_str(),
-	   bm->blockedDLRBGMask.size);
-    bm->blockedULPRBMask.size = strlen(mask->ul_prb_mask.c_str());
-    bm->blockedULPRBMask.buf = (uint8_t *)malloc(bm->blockedULPRBMask.size);
-    memcpy(bm->blockedULPRBMask.buf,mask->ul_prb_mask.c_str(),
-	   bm->blockedULPRBMask.size);
+    E2SM_ZYLINIUM_MaskConfigRequest *req = \
+	&m.choice.controlMessageFormat1.choice.maskConfigRequest;
+    req->dlDefault.size = strlen(dl_def.c_str());
+    req->dlDefault.buf = (uint8_t *)malloc(req->dlDefault.size);
+    memcpy(req->dlDefault.buf,dl_def.c_str(),req->dlDefault.size);
+    req->ulDefault.size = strlen(ul_def.c_str());
+    req->ulDefault.buf = (uint8_t *)malloc(req->ulDefault.size);
+    memcpy(req->ulDefault.buf,ul_def.c_str(),req->ulDefault.size);
+
+    E2SM_ZYLINIUM_BlockedMask_t *bm;
+    for (auto it = dl_sched.begin(); it != dl_sched.end(); ++it) {
+	bm = (E2SM_ZYLINIUM_BlockedMask_t *)calloc(sizeof(*bm),1);
+	encode_blocked_mask(*it,bm);
+	ASN_SEQUENCE_ADD(&req->dlSched.list,bm);
+    }
 
     E2SM_XER_PRINT(NULL,&asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_ControlHeader,&h);
 

@@ -414,7 +414,8 @@ class NodeB : public Resource<NodeB> {
 	: type(type_),mcc(std::string(mcc_)),mnc(std::string(mnc_)),
 	  id(id_),id_len(id_len_),connected(false),total_prbs(-1),
 	  name(build_name(type_,mcc_,mnc_,id_,id_len_)),
-	  dl_rbg_mask("0x0"),ul_prb_mask("0x0") {};
+	  dl_mask_def("0x0"),ul_mask_def("0x0"),
+	  dl_mask_sched(),ul_mask_sched() {};
     virtual ~NodeB() = default;
 
     std::string& getName() { return *name; }
@@ -441,24 +442,17 @@ class NodeB : public Resource<NodeB> {
     std::map<std::string,Slice *>& get_slices() {
 	return slices;
     };
-
-    void set_dl_rbg_mask(std::string mask) {
-	if (mask.size() > 0)
-	    dl_rbg_mask = mask;
-	else
-	    dl_rbg_mask = std::string("0x0");
+    e2sm::zylinium::MaskConfigRequest *make_mask_config_request(e2sm::Model *model) {
+	return new e2sm::zylinium::MaskConfigRequest(
+	    model,dl_mask_def,ul_mask_def,dl_mask_sched,ul_mask_sched);
     };
-    void set_ul_prb_mask(std::string mask) {
-	if (mask.size() > 0)
-	    ul_prb_mask = mask;
-	else
-	    ul_prb_mask = std::string("0x0");
-    };
-    std::string& get_dl_rbg_mask() {
-	return dl_rbg_mask;
-    };
-    std::string& get_ul_prb_mask() {
-	return ul_prb_mask;
+    bool update_mask_from_status(e2sm::zylinium::MaskStatusReport *report) {
+	dl_mask = report->dl_mask;
+	ul_mask = report->ul_mask;
+	dl_mask_def = report->dl_def;
+	ul_mask_def = report->ul_def;
+	dl_mask_sched = report->dl_sched;
+	ul_mask_sched = report->ul_sched;
     };
 
  private:
@@ -473,8 +467,12 @@ class NodeB : public Resource<NodeB> {
     bool connected;
     int total_prbs;
     std::map<std::string,Slice *> slices;
-    std::string dl_rbg_mask;
-    std::string ul_prb_mask;
+    e2sm::zylinium::BlockedMask dl_mask;
+    e2sm::zylinium::BlockedMask ul_mask;
+    std::string dl_mask_def;
+    std::string ul_mask_def;
+    std::list<e2sm::zylinium::BlockedMask> dl_mask_sched;
+    std::list<e2sm::zylinium::BlockedMask> ul_mask_sched;
 };
 
 class SliceMetrics {
