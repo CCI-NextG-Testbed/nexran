@@ -228,7 +228,7 @@ static bool parse_mask_sched(
 		(*ae)->add(std::string("invalid mask sched item: start must be a float"));
 		return false;
 	    }
-	    m.start = (float)vi["start"].GetDouble();
+	    m.start = vi["start"].GetDouble();
 	}
 	if (vi.HasMember("end")) {
 	    if (!vi["end"].IsDouble()) {
@@ -237,7 +237,7 @@ static bool parse_mask_sched(
 		(*ae)->add(std::string("invalid mask sched item: end must be a float"));
 		return false;
 	    }
-	    m.end = (float)vi["end"].GetDouble();
+	    m.end = vi["end"].GetDouble();
 	}
 	if (vi.HasMember("id")) {
 	    if (!vi["id"].IsInt()) {
@@ -246,7 +246,7 @@ static bool parse_mask_sched(
 		(*ae)->add(std::string("invalid mask sched item: id must be an integer"));
 		return false;
 	    }
-	    m.id = (float)vi["id"].GetInt();
+	    m.id = vi["id"].GetInt();
 	}
 
 	nl.push_back(m);

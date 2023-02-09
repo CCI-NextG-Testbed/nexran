@@ -17,13 +17,14 @@ namespace zylinium
 class BlockedMask
 {
 public:
-    BlockedMask() {};
-    BlockedMask(const std::string& mask_,float start_,float end_,int id_)
+    BlockedMask()
+	: mask("0x0"),start(0.0f),end(0.0f),id(0) {};
+    BlockedMask(const std::string& mask_,double start_,double end_,int id_)
 	: mask(mask_),start(start_),end(end_),id(id_) {};
 
     std::string mask;
-    float start;
-    float end;
+    double start;
+    double end;
     int id;
 };
 
