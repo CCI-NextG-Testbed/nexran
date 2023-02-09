@@ -301,6 +301,12 @@ bool MaskConfigRequest::encode()
 	ASN_SEQUENCE_ADD(&req->dlSched.list,bm);
     }
 
+    for (auto it = ul_sched.begin(); it != ul_sched.end(); ++it) {
+	bm = (E2SM_ZYLINIUM_BlockedMask_t *)calloc(sizeof(*bm),1);
+	encode_blocked_mask(*it,bm);
+	ASN_SEQUENCE_ADD(&req->ulSched.list,bm);
+    }
+
     E2SM_XER_PRINT(NULL,&asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_ControlHeader,&h);
 
     ssize_t len = e2sm::encode(&asn_DEF_E2SM_ZYLINIUM_E2SM_Zylinium_ControlHeader,NULL,&h,&header);
