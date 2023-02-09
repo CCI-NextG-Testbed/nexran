@@ -684,11 +684,11 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 
 	e2sm::zylinium::MaskStatusRequest *msreq = \
 	    new e2sm::zylinium::MaskStatusRequest(zylinium);
-	std::shared_ptr<e2ap::ControlRequest> mcreq = std::make_shared<e2ap::ControlRequest>(
+	std::shared_ptr<e2ap::ControlRequest> mscreq = std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
-	    1,msreq,e2ap::CONTROL_REQUEST_ACK);
-	mcreq->set_meid(rname);
-	e2ap.send_control_request(mcreq,rname);
+	    2,msreq,e2ap::CONTROL_REQUEST_ACK);
+	mscreq->set_meid(rname);
+	e2ap.send_control_request(mscreq,rname);
 
 	e2sm::zylinium::EventTrigger *ztrigger = \
 	    new e2sm::zylinium::EventTrigger(zylinium);
@@ -697,17 +697,17 @@ bool App::add(ResourceType rt,AbstractResource *resource,
 	std::shared_ptr<e2ap::SubscriptionRequest> zreq = \
 	    std::make_shared<e2ap::SubscriptionRequest>(
 		e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
-		0,ztrigger,zactions);
+		2,ztrigger,zactions);
 	zreq->set_meid(rname);
 	e2ap.send_subscription_request(zreq,rname);
 
-	e2sm::zylinium::MaskConfigRequest *mreq = \
+	e2sm::zylinium::MaskConfigRequest *mcreq = \
 	    nodeb->make_mask_config_request(zylinium);
-	creq = std::make_shared<e2ap::ControlRequest>(
+	std::shared_ptr<e2ap::ControlRequest> mccreq = std::make_shared<e2ap::ControlRequest>(
             e2ap.get_requestor_id(),e2ap.get_next_instance_id(),
-	    2,mreq,e2ap::CONTROL_REQUEST_ACK);
-	creq->set_meid(rname);
-	e2ap.send_control_request(creq,rname);
+	    2,mcreq,e2ap::CONTROL_REQUEST_ACK);
+	mccreq->set_meid(rname);
+	e2ap.send_control_request(mccreq,rname);
     }
 
     mdclog_write(MDCLOG_DEBUG,"added %s %s",
