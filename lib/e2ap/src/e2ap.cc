@@ -197,9 +197,6 @@ static ControlAck *decode_control_ack(E2AP *e2ap,E2AP_E2AP_PDU_t *pdu)
 	}
 	else if (ie->id == E2AP_ProtocolIE_ID_id_RICcallProcessID) {
 	}
-	else if (ie->id == E2AP_ProtocolIE_ID_id_RICcontrolStatus) {
-	    ret->status = ie->value.choice.RICcontrolStatus;
-	}
 	else if (ie->id == E2AP_ProtocolIE_ID_id_RICcontrolOutcome
 		 && ie->value.choice.RICcontrolOutcome.size > 0) {
 	    outcome_len = ie->value.choice.RICcontrolOutcome.size;
@@ -501,17 +498,35 @@ static SubscriptionFailure *decode_subscription_failure(E2AP *e2ap,E2AP_E2AP_PDU
 	else if (ie->id == E2AP_ProtocolIE_ID_id_RANfunctionID) {
 	    ret->function_id = ie->value.choice.RANfunctionID;
 	}
-	else if (ie->id == E2AP_ProtocolIE_ID_id_RICactions_NotAdmitted) {
-	    for (int i = 0; i < ie->value.choice.RICaction_NotAdmitted_List.list.count; ++i) {
-		E2AP_RICaction_NotAdmitted_Item_t *ana_item = \
-		    (E2AP_RICaction_NotAdmitted_Item_t *)ie->value.choice.RICaction_NotAdmitted_List.list.array[i];
-		ret->actions_not_admitted.push_back(
-		     std::make_tuple(ana_item->ricActionID,
-				     (long)ana_item->cause.present,
-				     (long)ana_item->cause.choice.misc));
-	    }
+	else if (ie->id == E2AP_ProtocolIE_ID_id_Cause) {
+		ret->cause = ie->value.choice.Cause.present;
+		switch (ret->cause) {
+		case E2AP_Cause_PR_NOTHING:
+			ret->cause_detail = 0;
+			break;
+		case E2AP_Cause_PR_ricRequest:
+			ret->cause_detail = ie->value.choice.Cause.choice.ricRequest;
+			break;
+		case E2AP_Cause_PR_ricService:
+			ret->cause_detail = ie->value.choice.Cause.choice.ricService;
+			break;
+		case E2AP_Cause_PR_e2Node:
+			ret->cause_detail = ie->value.choice.Cause.choice.e2Node;
+			break;
+		case E2AP_Cause_PR_transport:
+			ret->cause_detail = ie->value.choice.Cause.choice.transport;
+			break;
+		case E2AP_Cause_PR_protocol:
+			ret->cause_detail = ie->value.choice.Cause.choice.protocol;
+			break;
+		case E2AP_Cause_PR_misc:
+			ret->cause_detail = ie->value.choice.Cause.choice.misc;
+			break;
+		default:
+			break;
+		}
 	}
-    }
+}
 
     /*
      * Lookup original request.

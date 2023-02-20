@@ -171,21 +171,20 @@ class SubscriptionFailure : public Message
 	  Message() {};
     SubscriptionFailure(
         long requestor_id_,long instance_id_,RanFunctionId function_id_,
-	std::list<std::tuple<long,long,long>> actions_not_admitted_)
+	long cause_, long cause_detail_)
 	: requestor_id(requestor_id_),instance_id(instance_id_),
 	  function_id(function_id_),
-	  actions_not_admitted(actions_not_admitted_),
+	  cause(cause_), cause_detail(cause_detail_),
 	  Message() {};
-    virtual ~SubscriptionFailure() {
-	actions_not_admitted.clear();
-    }
+    virtual ~SubscriptionFailure() {}
 
     virtual bool encode();
 
     long requestor_id;
     long instance_id;
     RanFunctionId function_id;
-    std::list<std::tuple<long,long,long>> actions_not_admitted;
+    long cause;
+    long cause_detail;
 
     std::shared_ptr<SubscriptionRequest> req;
 };
@@ -398,7 +397,7 @@ class E2AP {
  public:
     E2AP(AgentInterface *agent_if_)
 	: agent_if(agent_if_),requestor_id(1),next_instance_id(1)
-    { std::srand(std::time(nullptr)); requestor_id = std::rand() % 65535; };
+    { requestor_id = 123; };
     virtual ~E2AP() = default;
     virtual bool init();
 

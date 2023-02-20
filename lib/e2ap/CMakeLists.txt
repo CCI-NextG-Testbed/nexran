@@ -21,7 +21,7 @@ set(ASN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/messages)
 # Build the E2AP bindings.
 #
 if("${RIC_GENERATED_E2AP_BINDING_DIR}" STREQUAL "")
-  set(E2AP_ASN_FILE ${ASN_DIR}/e2ap-v01.00.asn1)
+  set(E2AP_ASN_FILE ${ASN_DIR}/e2ap-v02.03.asn1)
   set(E2AP_C_DIR ${CMAKE_CURRENT_BINARY_DIR}/E2AP/)
 
   # NB: we need to run an execute_process during makefile parsing, to
