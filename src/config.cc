@@ -4,6 +4,13 @@
 #include <iostream>
 
 #include "config.h"
+#include "rapidjson/filereadstream.h"
+#include "rapidjson/document.h"
+#include "rapidjson/pointer.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
+
+using namespace rapidjson;
 
 nexran::Config::Config()
 {
@@ -174,4 +181,92 @@ void nexran::Config::usage(const char *progname)
 	    std::printf(", --%s",item->long_option_name);
 	std::printf("\t\t%s\n",item->help);
     }
+}
+
+nexran::xAppSettings::xAppSettings()
+{
+	if(config_names_map[XAPP_ID].empty())
+		config_names_map[XAPP_ID] = "nexran";
+	if(config_names_map[XAPP_NAME].empty())
+		config_names_map[XAPP_NAME] = "nexran";
+	if(config_names_map[VERSION].empty())
+		config_names_map[VERSION] = "0.2.1";
+	if(config_names_map[RMR_PORT].empty())
+		config_names_map[RMR_PORT] = "4560";
+	if(config_names_map[HTTP_PORT].empty())
+		config_names_map[HTTP_PORT] = "8000";
+	if(config_names_map[CONFIG_FILE].empty())
+		config_names_map[CONFIG_FILE] = "/nexran/etc/nexran-config-file.json";	
+}
+
+void nexran::xAppSettings::loadSettingsFromEnv()
+{
+	if (const char *env_xname = std::getenv("XAPP_NAME")){
+		config_names_map[XAPP_NAME].assign(env_xname);
+		mdclog_write(MDCLOG_INFO,"Xapp Name set to %s from environment variable", config_names_map[XAPP_NAME].c_str());
+	}
+	if (const char *env_xid = std::getenv("XAPP_ID")){
+		config_names_map[XAPP_ID].assign(env_xid);
+		mdclog_write(MDCLOG_INFO,"Xapp ID set to %s from environment variable", config_names_map[XAPP_ID].c_str());
+	}
+	if (const char *env_ports = std::getenv("RMR_PORT")){
+		config_names_map[RMR_PORT].assign(env_ports);
+		mdclog_write(MDCLOG_INFO,"Ports set to %s from environment variable", config_names_map[RMR_PORT].c_str());
+	}
+	if (const char *env_config_file = std::getenv("CONFIG_FILE")){
+		config_names_map[CONFIG_FILE].assign(env_config_file);
+		mdclog_write(MDCLOG_INFO,"Config file set to %s from environment variable", config_names_map[CONFIG_FILE].c_str());
+	}
+	if (char *env = getenv("RMR_SRC_ID")) {
+		config_names_map[RMR_SRC_ID].assign(env);
+		mdclog_write(MDCLOG_INFO,"RMR_SRC_ID set to %s from environment variable", config_names_map[RMR_SRC_ID].c_str());
+	} else {
+		mdclog_write(MDCLOG_ERR, "RMR_SRC_ID env var is not defined");
+	}
+}
+
+void nexran::xAppSettings::loadxAppDescriptorSettings()
+{
+	mdclog_write(MDCLOG_INFO, "Loading xApp descriptor file");
+
+	FILE *fp = fopen(config_names_map[CONFIG_FILE].c_str(), "r");
+	if (fp == NULL) {
+		mdclog_write(MDCLOG_ERR, "unable to open config file %s",
+					config_names_map[CONFIG_FILE].c_str());
+		return;
+	}
+	char buffer[4096];
+	FileReadStream is(fp, buffer, sizeof(buffer));
+	Document doc;
+	doc.ParseStream(is);
+
+	if (Value *value = Pointer("/version").Get(doc)) {
+		config_names_map[VERSION].assign(value->GetString());
+	} else {
+		mdclog_write(MDCLOG_WARN, "unable to get version from config file");
+	}
+	if (Value *value = Pointer("/messaging/ports").Get(doc)) {
+		auto array = value->GetArray();
+		for (auto &el : array) {
+			if (el.HasMember("name") && el.HasMember("port")) {
+				std::string name = el["name"].GetString();
+
+				if (name.compare("rmr-data") == 0) 
+					config_names_map[RMR_PORT].assign(std::to_string(el["port"].GetInt()));
+				else if (name.compare("nbi") == 0) {
+					config_names_map[HTTP_PORT].assign(std::to_string(el["port"].GetInt()));
+				}
+			}
+		}
+	} else {
+		mdclog_write(MDCLOG_WARN, "unable to get ports from config file");
+	}
+
+	StringBuffer outbuf;
+	outbuf.Clear();
+	Writer<StringBuffer> writer(outbuf);
+	doc.Accept(writer);
+	config_names_map[CONFIG_STR].assign(outbuf.GetString());
+
+	fclose(fp);
 }

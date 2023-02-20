@@ -5,12 +5,17 @@
 #include "rmr/RIC_message_types.h"
 #include "ricxfcpp/message.hpp"
 #include "ricxfcpp/messenger.hpp"
+#include "nlohmann/json.hpp"
+#include "cpprest/http_client.h"
+#include "cpprest/uri.h"
 
 #include "nexran.h"
 #include "e2ap.h"
 #include "e2sm.h"
 #include "e2sm_nexran.h"
 #include "e2sm_kpm.h"
+
+using jsonn = nlohmann::json;
 
 namespace nexran {
 
@@ -88,6 +93,7 @@ bool App::send_message(const unsigned char *buf,ssize_t buf_len,
 bool App::handle(e2ap::SubscriptionResponse *resp)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionResponse handler");
+	return false;
 }
 
 bool App::handle(e2ap::SubscriptionFailure *resp)
@@ -108,6 +114,7 @@ bool App::handle(e2ap::SubscriptionDeleteFailure *resp)
 bool App::handle(e2ap::ControlAck *control)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran ControlAck handler");
+	return false;
 }
 
 bool App::handle(e2ap::ControlFailure *control)
@@ -462,6 +469,7 @@ void App::start()
 	return;
 
     should_stop = false;
+	register_xapp();
 
     /*
      * Init the E2.  Note there is nothing to do until we are configured
@@ -494,6 +502,8 @@ void App::stop()
 {
     /* Stop the northbound interface. */
     server.stop();
+	/* Deregister the xApp*/
+	deregister_xapp();
     /* Stop the RMR Messenger superclass. */
     Stop();
     rmr_thread->join();
@@ -1001,4 +1011,151 @@ bool App::unbind_ue_slice(std::string& imsi,std::string& slice_name,
     return true;
 }
 
+void App::register_xapp() {
+	using namespace concurrency::streams;
+	mdclog_write(MDCLOG_INFO, "Preparing registration request");
+
+	std::string xapp_id = settings.operator[](xAppSettings::config_name::XAPP_ID);
+	std::string xapp_name = settings.operator[](xAppSettings::config_name::XAPP_NAME);
+	std::string version = settings.operator[](xAppSettings::config_name::VERSION);
+	std::string config_path = settings.operator[](xAppSettings::config_name::CONFIG_FILE);
+	std::string config_str = settings.operator[](xAppSettings::config_name::CONFIG_STR);
+	std::string rmr_addr = settings.operator[](xAppSettings::config_name::RMR_SRC_ID);
+	std::string http_addr = settings.operator[](xAppSettings::config_name::RMR_SRC_ID);
+	std::string rmr_port = settings.operator[](xAppSettings::config_name::RMR_PORT);
+	std::string http_port = settings.operator[](xAppSettings::config_name::HTTP_PORT);
+
+	rmr_addr.append(":" + rmr_port);
+	http_addr.append(":" + http_port);
+
+	pplx::create_task([xapp_name, version, config_path, xapp_id, http_addr, rmr_addr, config_str]()
+		{
+			jsonn jObj;
+			jObj = {
+				{"appName", xapp_name},
+				{"appVersion", version},
+				{"configPath", config_path},
+				{"appInstanceName", xapp_id},
+				{"httpEndpoint", http_addr},
+				{"rmrEndpoint", rmr_addr},
+				{"config", config_str}
+			};
+
+			if (mdclog_level_get() > MDCLOG_INFO) {
+				std::cerr << "NexRAN xApp registration body is\n" << jObj.dump(4) << "\n";
+			}
+			utility::stringstream_t s;
+			s << jObj.dump().c_str();
+			web::json::value ret = web::json::value::parse(s);
+
+			utility::string_t port = U("8080");
+			utility::string_t address = U("http://service-ricplt-appmgr-http.ricplt.svc.cluster.local:");
+			address.append(port);
+			address.append(U("/ric/v1/register"));
+			web::uri_builder uri(address);
+			auto addr = uri.to_uri().to_string();
+			web::http::client::http_client client(addr);
+
+			mdclog_write(MDCLOG_INFO, "sending NexRAN registration request at: %s", addr.c_str());
+
+			return client.request(web::http::methods::POST,U("/"),ret.serialize(),U("application/json"));
+		})
+
+		// Get the response.
+		.then([xapp_id](web::http::http_response response)
+		{
+			// Check the status code
+			if (response.status_code() == 201) {
+				mdclog_write(MDCLOG_INFO, "NexRAN xApp %s has been registered", xapp_id.c_str());
+			} else {
+				mdclog_write(MDCLOG_ERR, "xApp registration returned http status code %s - %s",
+							std::to_string(response.status_code()).c_str(), response.reason_phrase().c_str());
+			}
+		})
+
+		// catch any exception
+		.then([](pplx::task<void> previousTask)
+		{
+			try {
+				previousTask.wait();
+			} catch (std::exception& e) {
+				mdclog_write(MDCLOG_ERR, "xApp registration exception: %s", e.what());
+				throw;
+			}
+		}).get();	// get allows rethrowing exceptions from task
+}
+
+void App::deregister_xapp() {
+	using namespace concurrency::streams;
+	mdclog_write(MDCLOG_INFO, "Preparing deregistration request");
+
+	std::string xapp_id = settings.operator[](xAppSettings::config_name::XAPP_ID);
+	std::string xapp_name = settings.operator[](xAppSettings::config_name::XAPP_NAME);
+	std::string version = settings.operator[](xAppSettings::config_name::VERSION);
+	std::string config_path = settings.operator[](xAppSettings::config_name::CONFIG_FILE);
+	std::string config_str = settings.operator[](xAppSettings::config_name::CONFIG_STR);
+	std::string rmr_addr = settings.operator[](xAppSettings::config_name::RMR_SRC_ID);
+	std::string http_addr = settings.operator[](xAppSettings::config_name::RMR_SRC_ID);
+	std::string rmr_port = settings.operator[](xAppSettings::config_name::RMR_PORT);
+	std::string http_port = settings.operator[](xAppSettings::config_name::HTTP_PORT);
+
+	rmr_addr.append(":" + rmr_port);
+	http_addr.append(":" + http_port);
+
+	pplx::create_task([xapp_name, version, config_path, xapp_id, http_addr, rmr_addr, config_str]()
+		{
+			jsonn jObj;
+			jObj = {
+				{"appName", xapp_name},
+				{"appVersion", version},
+				{"configPath", config_path},
+				{"appInstanceName", xapp_id},
+				{"httpEndpoint", http_addr},
+				{"rmrEndpoint", rmr_addr},
+				{"config", config_str}
+			};
+
+			if (mdclog_level_get() > MDCLOG_INFO) {
+				std::cerr << "NexRAN xApp deregistration body is\n" << jObj.dump(4) << "\n";
+			}
+			utility::stringstream_t s;
+			s << jObj.dump().c_str();
+			web::json::value ret = web::json::value::parse(s);
+
+			utility::string_t port = U("8080");
+			utility::string_t address = U("http://service-ricplt-appmgr-http.ricplt.svc.cluster.local:");
+			address.append(port);
+			address.append(U("/ric/v1/deregister"));
+			web::uri_builder uri(address);
+			auto addr = uri.to_uri().to_string();
+			web::http::client::http_client client(addr);
+
+			mdclog_write(MDCLOG_INFO, "sending NexRAN deregistration request at: %s", addr.c_str());
+
+			return client.request(web::http::methods::POST,U("/"),ret.serialize(),U("application/json"));
+		})
+
+		// Get the response.
+		.then([xapp_id](web::http::http_response response)
+		{
+			// Check the status code
+			if (response.status_code() == 201) {
+				mdclog_write(MDCLOG_INFO, "NexRAN xApp %s has been deregistered", xapp_id.c_str());
+			} else {
+				mdclog_write(MDCLOG_ERR, "xApp deregistration returned http status code %s - %s",
+							std::to_string(response.status_code()).c_str(), response.reason_phrase().c_str());
+			}
+		})
+
+		// catch any exception
+		.then([](pplx::task<void> previousTask)
+		{
+			try {
+				previousTask.wait();
+			} catch (std::exception& e) {
+				mdclog_write(MDCLOG_ERR, "xApp deregistration exception: %s", e.what());
+				throw;
+			}
+		}).get();	// get allows rethrowing exceptions from task
+}
 }

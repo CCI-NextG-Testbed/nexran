@@ -6,6 +6,7 @@
 #include <string>
 #include <list>
 #include <memory>
+#include "mdclog/mdclog.h"
 
 namespace nexran {
 
@@ -78,6 +79,30 @@ class Config {
     struct option *long_options;
     char *optstr;
     
+};
+
+class xAppSettings {
+public:
+	typedef enum {
+		XAPP_ID,
+		XAPP_NAME,
+		VERSION,
+		RMR_SRC_ID,
+		RMR_PORT,
+		HTTP_PORT,
+		CONFIG_FILE,
+		CONFIG_STR
+	} config_name;
+
+	xAppSettings();
+	void loadSettingsFromEnv();
+	void loadxAppDescriptorSettings();
+	std::string& operator[](const config_name& value){
+		return config_names_map[value];
+	}
+private:
+	typedef std::map<config_name, std::string> ConfigMap;
+	ConfigMap config_names_map;
 };
 
 }

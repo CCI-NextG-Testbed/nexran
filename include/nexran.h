@@ -514,8 +514,8 @@ class App
 	UeResource,
     } ResourceType;
 
-    App(Config &config_)
-	: e2ap(this),config(config_),running(false),should_stop(false),
+    App(Config &config_, xAppSettings &settings_)
+	: e2ap(this),config(config_), settings(settings_),running(false),should_stop(false),
 	  rmr_thread(NULL),response_thread(NULL),
 	  xapp::Messenger(NULL,not config_[Config::ItemName::RMR_NOWAIT]->b),
 	  nexran(new e2sm::nexran::NexRANModel(this)),
@@ -525,6 +525,10 @@ class App
     virtual void start();
     virtual void stop();
     virtual void response_handler();
+
+	// Register xApp in Appmgr
+	void register_xapp();
+	void deregister_xapp();
 
     // xapp::Messenger callback
     virtual void handle_rmr_message(
@@ -574,6 +578,7 @@ class App
 			 AppError **ae);
 
     Config &config;
+	xAppSettings &settings;
 
  private:
     std::thread *rmr_thread;

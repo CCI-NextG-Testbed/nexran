@@ -20,6 +20,7 @@ void sigh(int signo) {
 int main(int argc,char **argv) {
     std::thread::id this_id;
     std::unique_ptr<nexran::Config> config;
+    std::unique_ptr<nexran::xAppSettings> xapp_settings;
 
     this_id = std::this_thread::get_id();
 
@@ -33,8 +34,12 @@ int main(int argc,char **argv) {
 	exit(1);
     }
 
+    xapp_settings = std::make_unique<nexran::xAppSettings>();
+    xapp_settings->loadSettingsFromEnv();
+    xapp_settings->loadxAppDescriptorSettings(); 
+
     mdclog_write(MDCLOG_DEBUG,"Creating app and attaching to RMR");
-    app = std::make_unique<nexran::App>(*config);
+    app = std::make_unique<nexran::App>(*config, *xapp_settings);
 
     signal(SIGINT,sigh);
     signal(SIGHUP,sigh);
