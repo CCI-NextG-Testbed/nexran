@@ -5,6 +5,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error")
 endif()
 
+set(GET_EXT_KPM_BINDINGS_SH ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/tools/download_kpm_bindings.sh)
 set(MAKE_ASN1_INCLUDES_SH ${CMAKE_CURRENT_SOURCE_DIR}/../../cmake/tools/make_asn1c_includes.sh)
 
 # Set global flags for build of generated asn.1 bindings.
@@ -19,10 +20,10 @@ set(ASN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/messages)
 
 
 if("${RIC_GENERATED_E2SM_KPM_BINDING_DIR}" STREQUAL "")
-  set(E2SM_KPM_ASN_FILE ${ASN_DIR}/e2sm-kpm-v01.00.asn1)
+  # set(E2SM_KPM_ASN_FILE ${ASN_DIR}/e2sm-kpm-v01.00.asn1)
   set(E2SM_KPM_C_DIR ${CMAKE_CURRENT_BINARY_DIR}/messages/E2SM-KPM/)
   execute_process(
-    COMMAND ${MAKE_ASN1_INCLUDES_SH} "${E2SM_KPM_C_DIR}" "${E2SM_KPM_ASN_FILE}" "E2SM_KPM_" -fno-include-deps -fincludes-quoted
+    COMMAND ${GET_EXT_KPM_BINDINGS_SH} "${E2SM_KPM_C_DIR}"
     RESULT_VARIABLE ret)
   if (NOT ${ret} STREQUAL 0)
     message(FATAL_ERROR "${ret}: error")
@@ -31,12 +32,12 @@ else()
   set(E2SM_KPM_C_DIR "${RIC_GENERATED_E2SM_KPM_BINDING_DIR}")
 endif()
 file(GLOB E2SM_KPM_source ${E2SM_KPM_C_DIR}/*.c)
-if("${RIC_GENERATED_E2SM_KPM_BINDING_DIR}" STREQUAL "")
-  add_custom_command (
-    OUTPUT ${E2SM_KPM_source}
-    COMMAND ${MAKE_ASN1_INCLUDES_SH} "${E2SM_KPM_C_DIR}" "${E2SM_KPM_ASN_FILE}" "E2SM_KPM_" -fno-include-deps -fincludes-quoted
-    DEPENDS ${E2SM_KPM_ASN_FILE})
-endif()
+# if("${RIC_GENERATED_E2SM_KPM_BINDING_DIR}" STREQUAL "")
+#   add_custom_command (
+#     OUTPUT ${E2SM_KPM_source}
+#     COMMAND ${MAKE_ASN1_INCLUDES_SH} "${E2SM_KPM_C_DIR}" "${E2SM_KPM_ASN_FILE}" "E2SM_KPM_" -fno-include-deps -fincludes-quoted
+#     DEPENDS ${E2SM_KPM_ASN_FILE})
+# endif()
 
 if("${RIC_GENERATED_E2SM_NEXRAN_BINDING_DIR}" STREQUAL "")
   set(E2SM_NEXRAN_ASN_FILE ${ASN_DIR}/e2sm-nexran-v01.00.asn1)
