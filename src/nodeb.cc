@@ -91,7 +91,7 @@ std::unique_ptr<std::string> NodeB::build_name(
     else if (strlen(mnc) == 2)
 	mnc_prefix = "0";
 
-    rc = std::snprintf(buf,sizeof(buf),"%s_%s_%s%s_%05x0",
+    rc = std::snprintf(buf,sizeof(buf),"%s_%s_%s%s_%06x",
 		       name_prefix,mcc,mnc_prefix,mnc,id);
     buf[rc] = '\0';
     return std::make_unique<std::string>(buf);
