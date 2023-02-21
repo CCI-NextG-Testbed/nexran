@@ -41,6 +41,10 @@ void MetricsIndex::add(entity_metrics_t m)
     totals.ul_bytes += m.ul_bytes;
     totals.dl_prbs += m.dl_prbs;
     totals.ul_prbs += m.ul_prbs;
+    totals.tx_pkts += m.tx_pkts;
+    totals.tx_errors += m.tx_errors;
+    totals.rx_pkts += m.rx_pkts;
+    totals.rx_errors += m.rx_errors;
     flush();
 }
 
@@ -55,6 +59,10 @@ void MetricsIndex::flush()
 	    totals.ul_bytes -= m.ul_bytes;
 	    totals.dl_prbs -= m.dl_prbs;
 	    totals.ul_prbs -= m.ul_prbs;
+	    totals.tx_pkts -= m.tx_pkts;
+	    totals.tx_errors -= m.tx_errors;
+	    totals.rx_pkts -= m.rx_pkts;
+	    totals.rx_errors -= m.rx_errors;
 	    queue.pop();
 	}
 	else
@@ -135,13 +143,26 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&pui->ul_PRBUsage,&ul_prbs);
 			    if (report->ues.count(pui->rnti) < 1) {
 				report->ues[pui->rnti] = {
-				    0,0,dl_prbs,ul_prbs,now
+				    now,0,0,dl_prbs,ul_prbs
 				};
 			    }
 			    else {
 				report->ues[pui->rnti].dl_prbs = dl_prbs;
 				report->ues[pui->rnti].ul_prbs = ul_prbs;
 			    }
+			    report->ues[pui->rnti].tx_pkts = pui->tx_pkts;
+			    report->ues[pui->rnti].tx_errors = pui->tx_errors;
+			    report->ues[pui->rnti].tx_brate = pui->tx_brate;
+			    report->ues[pui->rnti].rx_pkts = pui->rx_pkts;
+			    report->ues[pui->rnti].rx_errors = pui->rx_errors;
+			    report->ues[pui->rnti].rx_brate = pui->rx_brate;
+			    report->ues[pui->rnti].dl_cqi = pui->dl_cqi;
+			    report->ues[pui->rnti].dl_ri = pui->dl_ri;
+			    report->ues[pui->rnti].dl_pmi = pui->dl_pmi;
+			    report->ues[pui->rnti].ul_phr = pui->ul_phr;
+			    report->ues[pui->rnti].ul_sinr = pui->ul_sinr;
+			    report->ues[pui->rnti].ul_mcs = pui->ul_mcs;
+			    report->ues[pui->rnti].ul_samples = pui->ul_samples;
 			}
 		    }
 		    if (plmn_cell_item->du_PM_EPC->perSliceReportList) {
@@ -156,13 +177,26 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&psi->ul_PRBUsage,&ul_prbs);
 			    if (report->slices.count(slice_name) < 1) {
 				report->slices[slice_name] = {
-				    0,0,dl_prbs,ul_prbs,now
+				    now,0,0,dl_prbs,ul_prbs
 				};
 			    }
 			    else {
 				report->slices[slice_name].dl_prbs = dl_prbs;
 				report->slices[slice_name].ul_prbs = ul_prbs;
 			    }
+			    report->slices[slice_name].tx_pkts = psi->tx_pkts;
+			    report->slices[slice_name].tx_errors = psi->tx_errors;
+			    report->slices[slice_name].tx_brate = psi->tx_brate;
+			    report->slices[slice_name].rx_pkts = psi->rx_pkts;
+			    report->slices[slice_name].rx_errors = psi->rx_errors;
+			    report->slices[slice_name].rx_brate = psi->rx_brate;
+			    report->slices[slice_name].dl_cqi = psi->dl_cqi;
+			    report->slices[slice_name].dl_ri = psi->dl_ri;
+			    report->slices[slice_name].dl_pmi = psi->dl_pmi;
+			    report->slices[slice_name].ul_phr = psi->ul_phr;
+			    report->slices[slice_name].ul_sinr = psi->ul_sinr;
+			    report->slices[slice_name].ul_mcs = psi->ul_mcs;
+			    report->slices[slice_name].ul_samples = psi->ul_samples;
 			}
 		    }
 		}
@@ -196,7 +230,7 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&pui->bytesUL,&ul_bytes);
 			    if (report->ues.count(pui->rnti) < 1) {
 				report->ues[pui->rnti] = {
-				    dl_bytes,ul_bytes,0,0,now
+				    now,dl_bytes,ul_bytes,0,0
 				};
 			    }
 			    else {
@@ -217,7 +251,7 @@ static KpmReport *decode_kpm_indication(
 			    asn_INTEGER2ulong(&psi->bytesUL,&ul_bytes);
 			    if (report->slices.count(slice_name) < 1) {
 				report->slices[slice_name] = {
-				    dl_bytes,ul_bytes,0,0,now
+				    now,dl_bytes,ul_bytes,0,0
 				};
 			    }
 			    else {
@@ -246,13 +280,41 @@ std::string KpmReport::to_string(char group_delim,char item_delim)
 	   << "dl_bytes=" << it->second.dl_bytes << item_delim
 	   << "ul_bytes=" << it->second.ul_bytes << item_delim
 	   << "dl_prbs=" << it->second.dl_prbs << item_delim
-	   << "ul_prbs=" << it->second.ul_prbs << "}" << group_delim;
+	   << "ul_prbs=" << it->second.ul_prbs << item_delim
+	   << "tx_pkts=" << it->second.tx_pkts << item_delim
+	   << "tx_errors=" << it->second.tx_errors << item_delim
+	   << "tx_brate=" << it->second.tx_brate << item_delim
+	   << "rx_pkts=" << it->second.rx_pkts << item_delim
+	   << "rx_errors=" << it->second.rx_errors << item_delim
+	   << "rx_brate=" << it->second.rx_brate << item_delim
+	   << "dl_cqi=" << it->second.dl_cqi << item_delim
+	   << "dl_ri=" << it->second.dl_ri << item_delim
+	   << "dl_pmi=" << it->second.dl_pmi << item_delim
+	   << "ul_phr=" << it->second.ul_phr << item_delim
+	   << "ul_sinr=" << it->second.ul_sinr << item_delim
+	   << "ul_mcs=" << it->second.ul_mcs << item_delim
+	   << "ul_samples=" << it->second.ul_samples << item_delim
+	   << "}" << group_delim;
     for (auto it = slices.begin(); it != slices.end(); ++it)
 	ss << "slice[" << it->first << "]={"
 	   << "dl_bytes=" << it->second.dl_bytes << item_delim
 	   << "ul_bytes=" << it->second.ul_bytes << item_delim
 	   << "dl_prbs=" << it->second.dl_prbs << item_delim
-	   << "ul_prbs=" << it->second.ul_prbs << "}" << group_delim;
+	   << "ul_prbs=" << it->second.ul_prbs << item_delim
+	   << "tx_pkts=" << it->second.tx_pkts << item_delim
+	   << "tx_errors=" << it->second.tx_errors << item_delim
+	   << "tx_brate=" << it->second.tx_brate << item_delim
+	   << "rx_pkts=" << it->second.rx_pkts << item_delim
+	   << "rx_errors=" << it->second.rx_errors << item_delim
+	   << "rx_brate=" << it->second.rx_brate << item_delim
+	   << "dl_cqi=" << it->second.dl_cqi << item_delim
+	   << "dl_ri=" << it->second.dl_ri << item_delim
+	   << "dl_pmi=" << it->second.dl_pmi << item_delim
+	   << "ul_phr=" << it->second.ul_phr << item_delim
+	   << "ul_sinr=" << it->second.ul_sinr << item_delim
+	   << "ul_mcs=" << it->second.ul_mcs << item_delim
+	   << "ul_samples=" << it->second.ul_samples << item_delim
+	   << "}" << group_delim;
 
     return ss.str();
 }
