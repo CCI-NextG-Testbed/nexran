@@ -99,16 +99,19 @@ bool App::handle(e2ap::SubscriptionResponse *resp)
 bool App::handle(e2ap::SubscriptionFailure *resp)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionFailure handler");
+	return false;
 }
 
 bool App::handle(e2ap::SubscriptionDeleteResponse *resp)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionDeleteResponse handler");
+	return false;
 }
 
 bool App::handle(e2ap::SubscriptionDeleteFailure *resp)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran SubscriptionDeleteFailure handler");
+	return false;
 }
     
 bool App::handle(e2ap::ControlAck *control)
@@ -120,6 +123,7 @@ bool App::handle(e2ap::ControlAck *control)
 bool App::handle(e2ap::ControlFailure *control)
 {
     mdclog_write(MDCLOG_DEBUG,"nexran ControlFailure handler");
+	return false;
 }
 
 bool App::handle(e2ap::Indication *ind)
@@ -715,6 +719,8 @@ bool App::del(ResourceType rt,std::string& rname,
 	    creq->set_meid(nodeb->getName());
 	    e2ap.send_control_request(creq,nodeb->getName());
 	}
+
+	e2ap.delete_all_subscriptions(rname);
     }
 
     delete db[rt][rname];

@@ -219,7 +219,7 @@ class SubscriptionDeleteResponse : public Message
     long instance_id;
     RanFunctionId function_id;
 
-    std::shared_ptr<SubscriptionRequest> req;
+    std::shared_ptr<SubscriptionDeleteRequest> req;
 };
 
 class SubscriptionDeleteFailure : public Message
@@ -244,7 +244,7 @@ class SubscriptionDeleteFailure : public Message
     long cause;
     long cause_detail;
 
-    std::shared_ptr<SubscriptionRequest> req;
+    std::shared_ptr<SubscriptionDeleteRequest> req;
 };
 
 typedef enum ControlRequestAck
@@ -427,11 +427,18 @@ class E2AP {
      */
     std::shared_ptr<SubscriptionRequest> lookup_pending_subscription
         (std::string& xid);
-    std::shared_ptr<SubscriptionRequest> lookup_subscription
+    std::shared_ptr<SubscriptionResponse> lookup_subscription
         (int subid);
+    std::shared_ptr<SubscriptionDeleteRequest> lookup_pending_subscription_delete
+        (std::string& xid);
+    bool delete_all_subscriptions
+        (std::string& meid);
     std::shared_ptr<ControlRequest> lookup_control
         (long requestor_id,long instance_id);
 
+ private:
+    bool _send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
+					   const std::string& meid, bool locked);
  protected:
     std::mutex mutex;
     long requestor_id;
@@ -439,8 +446,8 @@ class E2AP {
     std::list<e2sm::Model *> models;
     std::map<long,std::shared_ptr<ControlRequest>> controls;
     std::map<std::string,std::shared_ptr<SubscriptionRequest>> pending_subscriptions;
-    std::map<int,std::shared_ptr<SubscriptionRequest>> subscriptions;
-    std::map<long,std::shared_ptr<SubscriptionDeleteRequest>> subscription_deletes;
+    std::map<int,std::shared_ptr<SubscriptionResponse>> subscriptions;
+    std::map<std::string,std::shared_ptr<SubscriptionDeleteRequest>> pending_deletes;
     AgentInterface *agent_if;
 };
 

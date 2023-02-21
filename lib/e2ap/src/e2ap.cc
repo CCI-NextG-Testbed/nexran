@@ -356,17 +356,17 @@ static Indication *decode_indication(E2AP *e2ap,E2AP_E2AP_PDU_t *pdu,int subid)
      * meid (NodeB) and its RanFunctionID, but this is a little more
      * cumbersome.)
      */
-    std::shared_ptr<SubscriptionRequest> req = e2ap->lookup_subscription(subid);
-    if (!req) {
+    std::shared_ptr<SubscriptionResponse> resp = e2ap->lookup_subscription(subid);
+    if (!resp) {
 	mdclog_write(MDCLOG_ERR,"indication subscriptionID not found (%d); ignoring",
 		     subid);
 	delete ret;
 	return NULL;
     }
-    ret->subscription_request = req;
+    ret->subscription_request = resp->req;
 
-    if (req->trigger) {
-	e2sm::Model *model = req->trigger->get_model();
+    if (resp->req->trigger) {
+	e2sm::Model *model = resp->req->trigger->get_model();
 	assert(model != NULL);
 	e2sm::Indication *sm_ind = model->decode(
 	    ret,header,header_len,message,message_len);
@@ -573,9 +573,9 @@ static SubscriptionDeleteResponse *decode_subscription_delete_response(E2AP *e2a
     /*
      * Lookup original request.
      */
-    std::shared_ptr<SubscriptionRequest> req = e2ap->lookup_pending_subscription(xid);
+    std::shared_ptr<SubscriptionDeleteRequest> req = e2ap->lookup_pending_subscription_delete(xid);
     if (!req) {
-	mdclog_write(MDCLOG_ERR,"subscription xid (%s) not found; ignoring",
+	mdclog_write(MDCLOG_ERR,"subscription delete xid (%s) not found; ignoring",
 		     xid.c_str());
 	delete ret;
 	return NULL;
@@ -586,7 +586,7 @@ static SubscriptionDeleteResponse *decode_subscription_delete_response(E2AP *e2a
     return ret;
 }
 
-static SubscriptionDeleteFailure *decode_subscription_delete_failure(E2AP *e2ap,E2AP_E2AP_PDU_t *pdu,int subid)
+static SubscriptionDeleteFailure *decode_subscription_delete_failure(E2AP *e2ap,E2AP_E2AP_PDU_t *pdu,std::string& xid)
 {
     assert(pdu->present == E2AP_E2AP_PDU_PR_unsuccessfulOutcome
 	   && pdu->choice.unsuccessfulOutcome.procedureCode \
@@ -621,9 +621,9 @@ static SubscriptionDeleteFailure *decode_subscription_delete_failure(E2AP *e2ap,
     /*
      * Lookup original request.
      */
-    std::shared_ptr<SubscriptionRequest> req = e2ap->lookup_subscription(subid);
+    std::shared_ptr<SubscriptionDeleteRequest> req = e2ap->lookup_pending_subscription_delete(xid);
     if (!req) {
-	mdclog_write(MDCLOG_ERR,"indication subscriptionID not found (%d); ignoring",subid);
+	mdclog_write(MDCLOG_ERR,"subscription delete xid (%s) not found; ignoring",xid.c_str());
 	delete ret;
 	return NULL;
     }
@@ -682,7 +682,7 @@ bool E2AP::handle_message(const unsigned char *buf,ssize_t len,int subid,
 		    mdclog_write(MDCLOG_DEBUG,"subscription request succeeded (xid=%s,subid=%d)\n",
 				 xid.c_str(),subid);
 		    mutex.lock();
-		    subscriptions[subid] = pending_subscriptions[xid];
+		    subscriptions[subid] = std::shared_ptr<SubscriptionResponse>(resp);
 		    pending_subscriptions.erase(xid);
 		    mutex.unlock();
 		    bret = agent_if->handle(resp);
@@ -692,8 +692,15 @@ bool E2AP::handle_message(const unsigned char *buf,ssize_t len,int subid,
 	case E2AP_ProcedureCode_id_RICsubscriptionDelete:
 	    {
 		SubscriptionDeleteResponse *resp = decode_subscription_delete_response(this,&pdu,xid);
-		if (resp)
+		if (resp) {
+		    mdclog_write(MDCLOG_DEBUG,"subscription delete request succeeded (xid=%s,subid=%d)\n",
+				 xid.c_str(),subid);
+		    mutex.lock();
+		    subscriptions.erase(subid);
+		    pending_deletes.erase(xid);
+		    mutex.unlock();
 		    bret = agent_if->handle(resp);
+		}
 	    }
 	    break;
 	case E2AP_ProcedureCode_id_RICcontrol:
@@ -726,7 +733,7 @@ bool E2AP::handle_message(const unsigned char *buf,ssize_t len,int subid,
 	    break;
 	case E2AP_ProcedureCode_id_RICsubscriptionDelete:
 	    {
-		SubscriptionDeleteFailure *resp = decode_subscription_delete_failure(this,&pdu,subid);
+		SubscriptionDeleteFailure *resp = decode_subscription_delete_failure(this,&pdu,xid);
 		if (resp)
 		    bret = agent_if->handle(resp);
 	    }
@@ -829,6 +836,10 @@ bool E2AP::send_subscription_request(std::shared_ptr<SubscriptionRequest> req,
     mutex.lock();
     if (pending_subscriptions.count(xid) > 0) {
 	mutex.unlock();
+	mdclog_write(MDCLOG_WARN,
+		     "subscription request already exists; not sending" \
+		     " (xid=%s,requestor_id=%ld,instance_id=%ld,meid=%s)\n",
+		     xid.c_str(),req->requestor_id,req->instance_id,meid.c_str());
 	return false;
     }
     pending_subscriptions[xid] = req;
@@ -850,27 +861,38 @@ bool E2AP::send_subscription_request(std::shared_ptr<SubscriptionRequest> req,
     return ret;
 }
 
-bool E2AP::send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
-					    const std::string& meid)
+bool E2AP::_send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
+					     const std::string& meid, bool locked)
 {
     if (!req->encode())
 	return false;
 
+    std::string xid = req_to_xid(req->requestor_id,req->instance_id);
     int subid = req_to_subid(req->requestor_id,req->instance_id);
-    mutex.lock();
-    if (subscription_deletes.count(subid) > 0) {
-	mutex.unlock();
+
+    if (!locked)
+	mutex.lock();
+    if (pending_deletes.count(xid) > 0) {
+	if (!locked)
+	    mutex.unlock();
+	mdclog_write(MDCLOG_WARN,
+		     "subscription delete request already exists; not sending" \
+		     " (subid=%d,requestor_id=%ld,instance_id=%ld,meid=%s)\n",
+		     subid,req->requestor_id,req->instance_id,meid.c_str());
 	return false;
     }
-    subscription_deletes[subid] = req;
-    mutex.unlock();
+    pending_deletes[xid] = req;
+    if (!locked)
+	mutex.unlock();
 
     bool ret = agent_if->send_message(req->get_buf(),req->get_len(),
-				      RIC_SUB_DEL_REQ,subid,meid,std::string());
+				      RIC_SUB_DEL_REQ,subid,meid,xid);
     if (!ret) {
-	mutex.lock();
-	subscription_deletes.erase(subid);
-	mutex.unlock();
+	if (!locked)
+	    mutex.lock();
+	pending_deletes.erase(xid);
+	if (!locked)
+	    mutex.unlock();
     }
     else
 	mdclog_write(MDCLOG_DEBUG,
@@ -879,6 +901,34 @@ bool E2AP::send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRe
 		     subid,req->requestor_id,req->instance_id,meid.c_str());
 
     return ret;
+}
+
+bool E2AP::send_subscription_delete_request(std::shared_ptr<SubscriptionDeleteRequest> req,
+					    const std::string& meid)
+{
+    const std::lock_guard<std::mutex> lock(mutex);
+
+    return _send_subscription_delete_request(req, meid, true);
+}
+
+bool E2AP::delete_all_subscriptions
+    (std::string& meid)
+{
+    const std::lock_guard<std::mutex> lock(mutex);
+
+    for (auto it = subscriptions.begin(); it != subscriptions.end(); ++it) {
+	if (it->second->req->meid != meid)
+	    continue;
+
+	std::shared_ptr<e2ap::SubscriptionDeleteRequest> req = \
+	    std::make_shared<e2ap::SubscriptionDeleteRequest>(
+		it->second->requestor_id,it->second->instance_id,
+		it->second->function_id);
+	req->set_meid(meid);
+	_send_subscription_delete_request(req, meid, true);
+    }
+
+    return true;
 }
 
 std::shared_ptr<SubscriptionRequest> E2AP::lookup_pending_subscription
@@ -891,13 +941,23 @@ std::shared_ptr<SubscriptionRequest> E2AP::lookup_pending_subscription
     return NULL;
 }
 
-std::shared_ptr<SubscriptionRequest> E2AP::lookup_subscription
+std::shared_ptr<SubscriptionResponse> E2AP::lookup_subscription
     (int subid)
 {
     const std::lock_guard<std::mutex> lock(mutex);
 
     if (subscriptions.count(subid) > 0)
 	return subscriptions[subid];
+    return NULL;
+}
+
+std::shared_ptr<SubscriptionDeleteRequest> E2AP::lookup_pending_subscription_delete
+    (std::string& xid)
+{
+    const std::lock_guard<std::mutex> lock(mutex);
+
+    if (pending_deletes.count(xid) > 0)
+	return pending_deletes[xid];
     return NULL;
 }
 
@@ -1074,6 +1134,60 @@ bool SubscriptionRequest::encode()
 	// XXX: subsequent_action/time_to_wait
 	ASN_SEQUENCE_ADD(&ie->value.choice.RICsubscriptionDetails.ricAction_ToBeSetup_List.list,aie);
     }
+    ASN_SEQUENCE_ADD(&req->protocolIEs.list,ie);
+
+    E2AP_XER_PRINT(NULL,&asn_DEF_E2AP_E2AP_PDU,&pdu);
+
+    if (encode_pdu(&pdu,&buf,&len) < 0) {
+	ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2AP_E2AP_PDU,&pdu);
+	return false;
+    }
+
+    /*
+    E2AP_E2AP_PDU_t pdud;
+    memset(&pdud,0,sizeof(pdud));
+    if (e2ap_decode_pdu(&pdud,*buffer,*len) < 0) {
+        E2AP_WARN("Failed to encode E2setupRequest\n");
+    }
+    */
+
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_E2AP_E2AP_PDU,&pdu);
+
+    encoded = true;
+    return true;
+}
+
+bool SubscriptionDeleteRequest::encode()
+{
+    E2AP_E2AP_PDU_t pdu;
+    E2AP_RICsubscriptionDeleteRequest_t *req;
+    E2AP_RICsubscriptionDeleteRequest_IEs_t *ie;
+    unsigned char *iebuf;
+    size_t iebuflen;
+
+    if (encoded)
+	return true;
+
+    memset(&pdu,0,sizeof(pdu));
+    pdu.present = E2AP_E2AP_PDU_PR_initiatingMessage;
+    pdu.choice.initiatingMessage.procedureCode = E2AP_ProcedureCode_id_RICsubscriptionDelete;
+    pdu.choice.initiatingMessage.criticality = E2AP_Criticality_reject;
+    pdu.choice.initiatingMessage.value.present = E2AP_InitiatingMessage__value_PR_RICsubscriptionDeleteRequest;
+    req = &pdu.choice.initiatingMessage.value.choice.RICsubscriptionDeleteRequest;
+
+    ie = (E2AP_RICsubscriptionDeleteRequest_IEs_t *)calloc(1,sizeof(*ie));
+    ie->id = E2AP_ProtocolIE_ID_id_RICrequestID;
+    ie->criticality = E2AP_Criticality_reject;
+    ie->value.present = E2AP_RICsubscriptionDeleteRequest_IEs__value_PR_RICrequestID;
+    ie->value.choice.RICrequestID.ricRequestorID = requestor_id;
+    ie->value.choice.RICrequestID.ricInstanceID = instance_id;
+    ASN_SEQUENCE_ADD(&req->protocolIEs.list,ie);
+
+    ie = (E2AP_RICsubscriptionDeleteRequest_IEs_t *)calloc(1,sizeof(*ie));
+    ie->id = E2AP_ProtocolIE_ID_id_RANfunctionID;
+    ie->criticality = E2AP_Criticality_reject;
+    ie->value.present = E2AP_RICsubscriptionDeleteRequest_IEs__value_PR_RANfunctionID;
+    ie->value.choice.RANfunctionID = function_id;
     ASN_SEQUENCE_ADD(&req->protocolIEs.list,ie);
 
     E2AP_XER_PRINT(NULL,&asn_DEF_E2AP_E2AP_PDU,&pdu);
